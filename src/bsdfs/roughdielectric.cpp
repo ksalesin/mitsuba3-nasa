@@ -278,23 +278,22 @@ public:
             fresnel(dr::dot(si.wi, m), m_eta);
 
         // Select the lobe to be sampled
-        UnpolarizedSpectrum weight;
         Mask selected_r, selected_t;
         if (likely(has_reflection && has_transmission)) {
             selected_r = sample1 <= F && active;
-            weight = 1.f;
+
             /* For differentiable variants, lobe choice has to be detached to avoid bias.
                 Sampling weights should be computed accordingly. */
-            if constexpr (dr::is_diff_v<Float>) {
-                if (dr::grad_enabled(F)) {
-                    weight = dr::select(selected_r, F / dr::detach(F), (1 - F) / (1.f - dr::detach(F)));
-                }
-            }
+            // TODO: Incorporate this into polarized version
+            // if constexpr (dr::is_diff_v<Float>) {
+            //     if (dr::grad_enabled(F)) {
+            //         weight = dr::select(selected_r, F / dr::detach(F), (1 - F) / (1.f - dr::detach(F)));
+            //     }
+            // }
             bs.pdf *= dr::detach(dr::select(selected_r, F, 1.f - F));
         } else {
             if (has_reflection || has_transmission) {
                 selected_r = Mask(has_reflection) && active;
-                weight = has_reflection ? F : (1.f - F);
             } else {
                 return { bs, 0.f };
             }
@@ -309,6 +308,42 @@ public:
                                       UInt32(+BSDFFlags::GlossyTransmission));
 
         Float dwh_dwo = 0.f;
+
+        Spectrum weight(0.f);
+        if constexpr (is_polarized_v<Spectrum>) {
+            /* Due to the coordinate system rotations for polarization-aware
+               pBSDFs below we need to know the propagation direction of light.
+               In the following, light arrives along `-wo_hat` and leaves along
+               `+wi_hat`. */
+            Vector3f wo_hat = ctx.mode == TransportMode::Radiance ? bs.wo : si.wi,
+                     wi_hat = ctx.mode == TransportMode::Radiance ? si.wi : bs.wo;
+
+            /* BSDF weights are Mueller matrices now. */
+            Float cos_theta_o_hat = dr::dot(wo_hat, m);
+            Spectrum R = mueller::specular_reflection(UnpolarizedSpectrum(cos_theta_o_hat), UnpolarizedSpectrum(m_eta)),
+                     T = mueller::specular_transmission(UnpolarizedSpectrum(cos_theta_o_hat), UnpolarizedSpectrum(m_eta));
+
+            if (likely(has_reflection && has_transmission)) {
+                weight[selected_r] = R / F;
+                weight[selected_t] = T / (1.f - F);
+            } else if (has_reflection || has_transmission) {
+                weight = has_reflection ? R : T;
+            }
+
+            /* The Stokes reference frame vector of this matrix lies perpendicular
+               to the plane of reflection. */
+            Vector3f s_axis_in  = dr::normalize(dr::cross(m, -wo_hat)),
+                     s_axis_out = dr::normalize(dr::cross(m, wi_hat));
+
+            /* Rotate in/out reference vector of `weight` s.t. it aligns with the
+               implicit Stokes bases of -wo_hat & wi_hat. */
+            weight = mueller::rotate_mueller_basis(weight,
+                                                   -wo_hat, s_axis_in, mueller::stokes_basis(-wo_hat),
+                                                    wi_hat, s_axis_out, mueller::stokes_basis(wi_hat));
+
+            // If the cross product s_axis_in or s_axis_out is too small, weight may be NaN
+            dr::masked(weight, dr::isnan(weight)) = depolarizer<Spectrum>(0.f);
+        }
 
         // Reflection sampling
         if (dr::any_or<true>(selected_r)) {
@@ -345,7 +380,9 @@ public:
         if (likely(m_sample_visible))
             weight *= distr.smith_g1(bs.wo, m);
         else
-            weight *= distr.G(si.wi, bs.wo, m) * dr::dot(si.wi, m) /
+            // weight *= distr.G(si.wi, bs.wo, m) * dr::dot(si.wi, m) /
+            //           (cos_theta_i * Frame3f::cos_theta(m));
+            weight *= dr::dot(si.wi, m) /
                       (cos_theta_i * Frame3f::cos_theta(m));
 
         bs.pdf *= dr::abs(dwh_dwo);
@@ -399,6 +436,38 @@ public:
 
         Mask eval_r = Mask(has_reflection) && reflect && active,
              eval_t = Mask(has_transmission) && !reflect && active;
+
+        Spectrum weight(0.f);
+        if constexpr (is_polarized_v<Spectrum>) {
+            /* Due to the coordinate system rotations for polarization-aware
+               pBSDFs below we need to know the propagation direction of light.
+               In the following, light arrives along `-wo_hat` and leaves along
+               `+wi_hat`. */
+            Vector3f wo_hat = ctx.mode == TransportMode::Radiance ? wo : si.wi,
+                     wi_hat = ctx.mode == TransportMode::Radiance ? si.wi : wo;
+
+            /* BSDF weights are Mueller matrices now. */
+            Float cos_theta_o_hat = dr::dot(wo_hat, m);
+            Spectrum R = mueller::specular_reflection(UnpolarizedSpectrum(cos_theta_o_hat), UnpolarizedSpectrum(m_eta)),
+                     T = mueller::specular_transmission(UnpolarizedSpectrum(cos_theta_o_hat), UnpolarizedSpectrum(m_eta));
+
+            weight[eval_r] = R;
+            weight[eval_t] = T;
+
+            /* The Stokes reference frame vector of this matrix lies perpendicular
+               to the plane of reflection. */
+            Vector3f s_axis_in  = dr::normalize(dr::cross(m, -wo_hat)),
+                     s_axis_out = dr::normalize(dr::cross(m, wi_hat));
+
+            /* Rotate in/out reference vector of `weight` s.t. it aligns with the
+               implicit Stokes bases of -wo_hat & wi_hat. */
+            weight = mueller::rotate_mueller_basis(weight,
+                                                   -wo_hat, s_axis_in, mueller::stokes_basis(-wo_hat),
+                                                    wi_hat, s_axis_out, mueller::stokes_basis(wi_hat));
+
+            // If the cross product s_axis_in or s_axis_out is too small, weight may be NaN
+            dr::masked(weight, dr::isnan(weight)) = depolarizer<Spectrum>(0.f);
+        }
 
         if (dr::any_or<true>(eval_r)) {
             UnpolarizedSpectrum value = F * D * G / (4.f * dr::abs(cos_theta_i));
