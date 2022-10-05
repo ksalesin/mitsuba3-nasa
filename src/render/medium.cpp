@@ -41,10 +41,13 @@ Medium<Float, Spectrum>::sample_interaction(const Ray3f &ray, Float sample,
 
     // initialize basic medium interaction fields
     MediumInteraction3f mei = dr::zeros<MediumInteraction3f>();
-    mei.wi          = -ray.d;
+    // mei.wi          = -ray.d;
     mei.sh_frame    = Frame3f(mei.wi);
     mei.time        = ray.time;
     mei.wavelengths = ray.wavelengths;
+
+    // Incident direction in local coordinates, reversed to match BSDF convention
+    mei.wi = Vector3f(0.f, 0.f, -1.f);
 
     auto [aabb_its, mint, maxt] = intersect_aabb(ray);
     aabb_its &= (dr::isfinite(mint) || dr::isfinite(maxt));

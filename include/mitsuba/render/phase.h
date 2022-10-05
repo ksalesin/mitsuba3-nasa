@@ -141,12 +141,16 @@ public:
      *     A uniformly distributed sample on \f$[0,1]^2\f$. It is
      *     used to generate the sampled direction.
      *
-     * \return A sampled direction wo
+     * \return A tuple (wo, value) consisting of
+     *
+     *     wo:    Normalized outgoing direction.
+     *
+     *     value: The phase function value divided by sampling pdf.
      */
-    virtual std::pair<Vector3f, Float> sample(const PhaseFunctionContext &ctx,
-                                              const MediumInteraction3f &mi,
-                                              Float sample1, const Point2f &sample2,
-                                              Mask active = true) const = 0;
+    virtual std::pair<Vector3f, Spectrum> sample(const PhaseFunctionContext &ctx,
+                                                 const MediumInteraction3f &mi,
+                                                 Float sample1, const Point2f &sample2,
+                                                 Mask active = true) const = 0;
     /**
      * \brief Evaluates the phase function model
      *
@@ -167,8 +171,34 @@ public:
      *
      * \return The value of the phase function in direction wo
      */
-    virtual Float eval(const PhaseFunctionContext &ctx, const MediumInteraction3f &mi,
-                       const Vector3f &wo, Mask active = true) const = 0;
+    virtual Spectrum eval(const PhaseFunctionContext &ctx, const MediumInteraction3f &mi,
+                          const Vector3f &wo, Mask active = true) const = 0;
+
+    /**
+     * \brief Compute the probability per unit solid angle of sampling a
+     * given direction
+     *
+     * This method provides access to the probability density that would result
+     * when supplying the same Phase Function context and medium interaction data
+     * structures to the \ref sample() method. 
+     *
+     * Note that the incident direction does not need to be explicitly
+     * specified. It is obtained from the field <tt>mi.wi</tt>.
+     *
+     * \param ctx
+     *     A context data structure describing which lobes to evalute,
+     *     and whether radiance or importance are being transported.
+     *
+     * \param mi
+     *     A medium interaction data structure describing the underlying
+     *     medium position. The incident direction is obtained from
+     *     the field <tt>mi.wi</tt>.
+     *
+     * \param wo
+     *     The outgoing direction
+     */
+    virtual Float pdf(const PhaseFunctionContext &ctx, const MediumInteraction3f &mi,
+                      const Vector3f &wo, Mask active = true) const = 0;
 
     /**
      * \brief Returns the microflake projected area
@@ -261,6 +291,7 @@ NAMESPACE_END(mitsuba)
 DRJIT_VCALL_TEMPLATE_BEGIN(mitsuba::PhaseFunction)
     DRJIT_VCALL_METHOD(sample)
     DRJIT_VCALL_METHOD(eval)
+    DRJIT_VCALL_METHOD(pdf)
     DRJIT_VCALL_METHOD(projected_area)
     DRJIT_VCALL_METHOD(max_projected_area)
     DRJIT_VCALL_GETTER(flags, uint32_t)

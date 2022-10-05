@@ -4,6 +4,7 @@
 #include <mitsuba/render/fwd.h>
 #include <mitsuba/render/fresnel.h>
 #include <drjit/matrix.h>
+#include <drjit/sphere.h>
 
 NAMESPACE_BEGIN(mitsuba)
 
@@ -261,6 +262,68 @@ MuellerMatrix<Float> specular_transmission(Float cos_theta_i, Float eta) {
         b, a, 0, 0,
         0, 0, c, 0,
         0, 0, 0, c
+    );
+}
+
+/**
+ * \brief Calculates the Mueller matrix of a Mie scatter event given complex
+ * scattering amplitudes of ordinary and extraordinary rays.
+ *
+ * \param s1
+ *      Scattering amplitude/phase of the *ordinary* ray
+ *
+ * \param s2
+ *      Scattering amplitude/phase of the *extraordinary* ray
+ * 
+ * \param ns
+ *      Normalization factor for phase function
+ * 
+ */
+template <typename Float>
+MuellerMatrix<Float> mie_scatter(dr::Complex<Float> s1, dr::Complex<Float> s2, Float ns) {
+    auto s11 = 0.5f * (dr::squared_norm(s1) + dr::squared_norm(s2));
+    auto s12 = 0.5f * (dr::squared_norm(s1) - dr::squared_norm(s2));
+    auto s33 = dr::real(s1 * dr::conj(s2));
+    auto s34 = dr::imag(s1 * dr::conj(s2));
+
+    return dr::rcp(ns) * MuellerMatrix<Float>(
+        s11, s12, 0, 0,
+        s12, s11, 0, 0,
+        0, 0, s33,-s34,
+        0, 0, s34, s33
+    );
+}
+
+/**
+ * \brief Calculates the Mueller matrix of a Rayleigh scatter event given
+ * the scattering angle.
+ *
+ * \param cos_theta
+ *      Cosine of the scattering angle.
+ *
+ * \param sin_theta
+ *      Sine of the scattering angle.
+ * 
+ * \param rho
+ *      Depolarization factor.
+ * 
+ */
+template <typename Float>
+MuellerMatrix<Float> rayleigh_scatter(Float cos_theta, Float sin_theta, Float rho) {
+    Float r1 = (1.f - rho) / (1.f + rho / 2.f),
+          r2 = (1.f + rho) / (1.f - rho),
+          r3 = (1.f - 2.f * rho) / (1.f - rho);
+
+    Float a = r2 + dr::sqr(cos_theta),
+          b = 1.f + dr::sqr(cos_theta),
+          c = -dr::sqr(sin_theta),
+          d = 2.f * cos_theta;
+
+    return Float(3.f / 16.f) * dr::InvPi<Float> * r1 * MuellerMatrix<Float>(
+        a, c, 0, 0,
+        c, b, 0, 0, 
+        0, 0, d, 0,
+        0, 0, 0, d * r3
     );
 }
 

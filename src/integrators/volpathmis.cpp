@@ -272,9 +272,12 @@ public:
                         auto [p_over_f_nee_end, p_over_f_end, emitted, ds] =
                             sample_emitter(mei, scene, sampler, medium, p_over_f,
                                            channel, active_e);
-                        Float phase_val = phase->eval(phase_ctx, mei, ds.d, active_e);
-                        update_weights(p_over_f_nee_end, 1.0f, phase_val, channel, active_e);
-                        update_weights(p_over_f_end, dr::select(ds.delta, 0.f, phase_val), phase_val, channel, active_e);
+                        Vector3f wo  = mei.to_local(ds.d);
+                        Spectrum phase_val = phase->eval(phase_ctx, mei, wo, active_e);
+                        Float phase_pdf = phase->pdf(phase_ctx, mei, wo, active_e);
+                        auto phase_u = unpolarized_spectrum(phase_val);
+                        update_weights(p_over_f_nee_end, 1.0f, phase_u, channel, active_e);
+                        update_weights(p_over_f_end, dr::select(ds.delta, 0.f, phase_u), phase_u, channel, active_e);
                         dr::masked(result, active_e) += mis_weight(p_over_f_nee_end, p_over_f_end) * emitted;
                     }
 
@@ -283,14 +286,18 @@ public:
 
                     // ------------------ Phase function sampling -----------------
                     dr::masked(phase, !act_medium_scatter) = nullptr;
-                    auto [wo, phase_pdf] = phase->sample(phase_ctx, mei,
+                    auto [wo, phase_val] = phase->sample(phase_ctx, mei,
                         sampler->next_1d(act_medium_scatter),
                         sampler->next_2d(act_medium_scatter),
                         act_medium_scatter);
-                    Ray3f new_ray  = mei.spawn_ray(wo);
+                    phase_val = mei.to_world_mueller(phase_val, -wo, mei.wi);
+                    Float phase_pdf = phase->pdf(phase_ctx, mei, wo, act_medium_scatter);
+
+                    Ray3f new_ray  = mei.spawn_ray(mei.to_world(wo));
                     dr::masked(ray, act_medium_scatter) = new_ray;
                     needs_intersection |= act_medium_scatter;
 
+                    // Not sure if this is correct for separate phase_val / phase_pdf
                     update_weights(p_over_f, phase_pdf, phase_pdf, channel, act_medium_scatter);
                     update_weights(p_over_f_nee, 1.f, phase_pdf, channel, act_medium_scatter);
                 }

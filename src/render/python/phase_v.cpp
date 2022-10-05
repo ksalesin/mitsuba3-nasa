@@ -10,17 +10,22 @@ public:
 
     PyPhaseFunction(const Properties &props) : PhaseFunction(props) {}
 
-    std::pair<Vector3f, Float> sample(const PhaseFunctionContext &ctx,
+    std::pair<Vector3f, Spectrum> sample(const PhaseFunctionContext &ctx,
                     const MediumInteraction3f &mi,
                     Float sample1, const Point2f &sample2,
                     Mask active) const override {
-        using Return = std::pair<Vector3f, Float>;
+        using Return = std::pair<Vector3f, Spectrum>;
         PYBIND11_OVERRIDE_PURE(Return, PhaseFunction, sample, ctx, mi, sample1, sample2, active);
     }
 
-    Float eval(const PhaseFunctionContext &ctx, const MediumInteraction3f &mi,
+    Spectrum eval(const PhaseFunctionContext &ctx, const MediumInteraction3f &mi,
+                  const Vector3f &wo, Mask active) const override {
+        PYBIND11_OVERRIDE_PURE(Spectrum, PhaseFunction, eval, ctx, mi, wo, active);
+    }
+
+    Float pdf(const PhaseFunctionContext &ctx, const MediumInteraction3f &mi,
                const Vector3f &wo, Mask active) const override {
-        PYBIND11_OVERRIDE_PURE(Float, PhaseFunction, eval, ctx, mi, wo, active);
+        PYBIND11_OVERRIDE_PURE(Float, PhaseFunction, pdf, ctx, mi, wo, active);
     }
 
     Float projected_area(const MediumInteraction3f &mi, Mask active) const override {

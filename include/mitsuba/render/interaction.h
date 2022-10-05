@@ -461,6 +461,95 @@ struct MediumInteraction : Interaction<Float_, Spectrum_> {
         return sh_frame.to_local(v);
     }
 
+    /**
+     * \brief Converts a Mueller matrix defined in a local frame to world space
+     *
+     * A Mueller matrix operates from the (implicitly) defined frame
+     * stokes_basis(in_forward) to the frame stokes_basis(out_forward).
+     * This method converts a Mueller matrix defined on directions in the local
+     * frame to a Mueller matrix defined on world-space directions.
+     *
+     * This expands to a no-op in non-polarized modes.
+     *
+     * \param M_local
+     *      The Mueller matrix in local space, e.g. returned by a BSDF.
+     *
+     * \param in_forward_local
+     *      Incident direction (along propagation direction of light),
+     *      given in local frame coordinates.
+     *
+     * \param wo_local
+     *      Outgoing direction (along propagation direction of light),
+     *      given in local frame coordinates.
+     *
+     * \return
+     *      Equivalent Mueller matrix that operates in world-space coordinates.
+     */
+    Spectrum to_world_mueller(const Spectrum &M_local,
+                              const Vector3f &in_forward_local,
+                              const Vector3f &out_forward_local) const {
+        if constexpr (is_polarized_v<Spectrum>) {
+            Vector3f in_forward_world  = to_world(in_forward_local),
+                     out_forward_world = to_world(out_forward_local);
+
+            Vector3f in_basis_current = to_world(mueller::stokes_basis(in_forward_local)),
+                     in_basis_target  = mueller::stokes_basis(in_forward_world);
+
+            Vector3f out_basis_current = to_world(mueller::stokes_basis(out_forward_local)),
+                     out_basis_target  = mueller::stokes_basis(out_forward_world);
+
+            return mueller::rotate_mueller_basis(M_local,
+                                                 in_forward_world, in_basis_current, in_basis_target,
+                                                 out_forward_world, out_basis_current, out_basis_target);
+        } else {
+            DRJIT_MARK_USED(in_forward_local);
+            DRJIT_MARK_USED(out_forward_local);
+            return M_local;
+        }
+    }
+
+    /**
+     * \brief Converts a Mueller matrix defined in world space to a local frame
+     *
+     * A Mueller matrix operates from the (implicitly) defined frame
+     * stokes_basis(in_forward) to the frame stokes_basis(out_forward).
+     * This method converts a Mueller matrix defined on directions in
+     * world-space to a Mueller matrix defined in the local frame.
+     *
+     * This expands to a no-op in non-polarized modes.
+     *
+     * \param in_forward_local
+     *      Incident direction (along propagation direction of light),
+     *      given in world-space coordinates.
+     *
+     * \param wo_local
+     *      Outgoing direction (along propagation direction of light),
+     *      given in world-space coordinates.
+     *
+     * \return
+     *      Equivalent Mueller matrix that operates in local frame coordinates.
+     */
+    Spectrum to_local_mueller(const Spectrum &M_world,
+                              const Vector3f &in_forward_world,
+                              const Vector3f &out_forward_world) const {
+        if constexpr (is_polarized_v<Spectrum>) {
+            Vector3f in_forward_local = to_local(in_forward_world),
+                     out_forward_local = to_local(out_forward_world);
+
+            Vector3f in_basis_current = to_local(mueller::stokes_basis(in_forward_world)),
+                     in_basis_target  = mueller::stokes_basis(in_forward_local);
+
+            Vector3f out_basis_current = to_local(mueller::stokes_basis(out_forward_world)),
+                     out_basis_target  = mueller::stokes_basis(out_forward_local);
+
+            return mueller::rotate_mueller_basis(M_world,
+                                                 in_forward_local, in_basis_current, in_basis_target,
+                                                 out_forward_local, out_basis_current, out_basis_target);
+        } else {
+            return M_world;
+        }
+    }
+
     //! @}
     // =============================================================
 

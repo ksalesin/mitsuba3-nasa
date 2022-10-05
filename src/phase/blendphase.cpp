@@ -100,10 +100,10 @@ public:
         callback->put_object("phase_1", m_nested_phase[1].get(), +ParamFlags::Differentiable);
     }
 
-    std::pair<Vector3f, Float> sample(const PhaseFunctionContext &ctx,
-                                      const MediumInteraction3f &mi,
-                                      Float sample1, const Point2f &sample2,
-                                      Mask active) const override {
+    std::pair<Vector3f, Spectrum> sample(const PhaseFunctionContext &ctx,
+                                         const MediumInteraction3f &mi,
+                                         Float sample1, const Point2f &sample2,
+                                         Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionSample, active);
 
         Float weight = eval_weight(mi, active);
@@ -123,26 +123,26 @@ public:
         }
 
         Vector3f wo;
-        Float pdf;
+        Spectrum result;
 
         Mask m0 = active && sample1 > weight,
              m1 = active && sample1 <= weight;
 
         if (dr::any_or<true>(m0)) {
-            auto [wo0, pdf0] = m_nested_phase[0]->sample(
+            auto [wo0, val0] = m_nested_phase[0]->sample(
                 ctx, mi, (sample1 - weight) / (1 - weight), sample2, m0);
             dr::masked(wo, m0)  = wo0;
-            dr::masked(pdf, m0) = pdf0;
+            dr::masked(result, m0) = val0;
         }
 
         if (dr::any_or<true>(m1)) {
-            auto [wo1, pdf1] = m_nested_phase[1]->sample(
+            auto [wo1, val1] = m_nested_phase[1]->sample(
                 ctx, mi, sample1 / weight, sample2, m1);
             dr::masked(wo, m1)  = wo1;
-            dr::masked(pdf, m1) = pdf1;
+            dr::masked(result, m1) = val1;
         }
 
-        return { wo, pdf };
+        return { wo, result };
     }
 
     MI_INLINE Float eval_weight(const MediumInteraction3f &mi,
@@ -150,7 +150,7 @@ public:
         return dr::clamp(m_weight->eval_1(mi, active), 0.f, 1.f);
     }
 
-    Float eval(const PhaseFunctionContext &ctx, const MediumInteraction3f &mi,
+    Spectrum eval(const PhaseFunctionContext &ctx, const MediumInteraction3f &mi,
                const Vector3f &wo, Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionEvaluate, active);
 
@@ -173,6 +173,29 @@ public:
                m_nested_phase[1]->eval(ctx, mi, wo, active) * weight;
     }
 
+    Float pdf(const PhaseFunctionContext &ctx, const MediumInteraction3f &mi,
+               const Vector3f &wo, Mask active) const override {
+        MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionEvaluate, active);
+
+        Float weight = eval_weight(mi, active);
+
+        if (unlikely(ctx.component != (uint32_t) -1)) {
+            bool sample_first =
+                ctx.component < m_nested_phase[0]->component_count();
+            PhaseFunctionContext ctx2(ctx);
+            if (!sample_first)
+                ctx2.component -=
+                    (uint32_t) m_nested_phase[0]->component_count();
+            else
+                weight = 1.f - weight;
+            return weight * m_nested_phase[sample_first ? 0 : 1]->pdf(
+                                ctx2, mi, wo, active);
+        }
+
+        return m_nested_phase[0]->pdf(ctx, mi, wo, active) * (1 - weight) +
+               m_nested_phase[1]->pdf(ctx, mi, wo, active) * weight;
+    }
+    
     std::string to_string() const override {
         std::ostringstream oss;
         oss << "BlendPhase[" << std::endl

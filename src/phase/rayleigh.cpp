@@ -39,23 +39,66 @@ public:
     MI_IMPORT_TYPES(PhaseFunctionContext)
 
     RayleighPhaseFunction(const Properties &props) : Base(props) {
-        if constexpr (is_polarized_v<Spectrum>)
-            Log(Warn,
-                "Polarized version of Rayleigh phase function not implemented, "
-                "falling back to scalar version");
+        m_depolarization = props.get<ScalarFloat>("depolarization", 0.f);
+
+       if (m_depolarization < 0.f || m_depolarization >= 1.f)
+            Log(Error, "Depolarization factor must be between 0 and 1!");
 
         m_flags = +PhaseFunctionFlags::Anisotropic;
     }
 
-    MI_INLINE Float eval_rayleigh(Float cos_theta) const {
+    MI_INLINE Float eval_rayleigh_pdf(Float cos_theta) const {
         return (3.f / 16.f) * dr::InvPi<Float> * (1.f + dr::sqr(cos_theta));
     }
 
-    std::pair<Vector3f, Float> sample(const PhaseFunctionContext & /* ctx */,
+    MI_INLINE Spectrum eval_rayleigh(const PhaseFunctionContext &ctx, 
                                       const MediumInteraction3f &mi,
-                                      Float /* sample1 */,
-                                      const Point2f &sample,
-                                      Mask active) const override {
+                                      const Vector3f &wo,
+                                      Float cos_theta) const {
+        Spectrum phase_val;
+
+        if constexpr (is_polarized_v<Spectrum>) {
+            Float sin_theta = dr::safe_sqrt(1.0f - dr::sqr(cos_theta));
+            phase_val = mueller::rayleigh_scatter(cos_theta, sin_theta, (Float) m_depolarization);
+
+            /* Due to the coordinate system rotations for polarization-aware
+                pBSDFs below we need to know the propagation direction of light.
+                In the following, light arrives along `-wo_hat` and leaves along
+                `+wi_hat`. */
+            Vector3f wo_hat = ctx.mode == TransportMode::Radiance ? wo : mi.wi,
+                     wi_hat = ctx.mode == TransportMode::Radiance ? mi.wi : wo;
+
+            /* The Stokes reference frame vector of this matrix lies in the 
+                scattering plane spanned by wi and wo. */
+            Vector3f x_hat = dr::cross(-wo_hat, wi_hat),
+                     p_axis_in = dr::normalize(dr::cross(x_hat, -wo_hat)),
+                     p_axis_out = dr::normalize(dr::cross(x_hat, wi_hat));
+
+            /* Rotate in/out reference vector of weight s.t. it aligns with the
+            implicit Stokes bases of -wo_hat & wi_hat. */
+            phase_val = mueller::rotate_mueller_basis(phase_val,
+                                                     -wo_hat, p_axis_in, mueller::stokes_basis(-wo_hat),
+                                                      wi_hat, p_axis_out, mueller::stokes_basis(wi_hat));
+
+            // If the cross product x_hat is too small, phase_val may be NaN
+            dr::masked(phase_val, dr::isnan(phase_val)) = 0.f;
+
+        } else {
+            Float rho = (Float) m_depolarization,
+                  r1 = (1.f - rho) / (1.f + rho / 2.f),
+                  r2 = (1.f + rho) / (1.f - rho);
+
+            phase_val = (3.f / 16.f) * dr::InvPi<Float> * r1 * (r2 + dr::sqr(cos_theta));
+        }
+
+        return phase_val;
+    }
+
+    std::pair<Vector3f, Spectrum> sample(const PhaseFunctionContext &ctx,
+                                         const MediumInteraction3f &mi,
+                                         Float /* sample1 */,
+                                         const Point2f &sample,
+                                         Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionSample, active);
 
         Float z   = 2.f * (2.f * sample.x() - 1.f);
@@ -69,20 +112,32 @@ public:
         auto wo = Vector3f{ sin_theta * cos_phi, sin_theta * sin_phi, cos_theta };
 
         wo = mi.to_world(wo);
-        Float pdf = eval_rayleigh(-cos_theta);
-        return { wo, pdf };
+        Float pdf = eval_rayleigh_pdf(cos_theta);
+
+        Spectrum phase_val = eval_rayleigh(ctx, mi, wo, cos_theta) * dr::rcp(pdf);
+
+        return { wo, phase_val };
     }
 
-    Float eval(const PhaseFunctionContext & /* ctx */,
+    Spectrum eval(const PhaseFunctionContext &ctx,
                const MediumInteraction3f &mi, const Vector3f &wo,
                Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionEvaluate, active);
-        return eval_rayleigh(dot(wo, mi.wi));
+        return eval_rayleigh(ctx, mi, wo, dot(wo, -mi.wi));
+    }
+
+    Float pdf(const PhaseFunctionContext &/* ctx */,
+               const MediumInteraction3f &mi, const Vector3f &wo,
+               Mask active) const override {
+        MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionEvaluate, active);
+        return eval_rayleigh_pdf(dot(wo, -mi.wi));
     }
 
     std::string to_string() const override { return "RayleighPhaseFunction[]"; }
 
     MI_DECLARE_CLASS()
+private:
+    ScalarFloat m_depolarization;
 };
 
 MI_IMPLEMENT_CLASS_VARIANT(RayleighPhaseFunction, PhaseFunction)

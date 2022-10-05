@@ -37,19 +37,25 @@ public:
         m_components.push_back(m_flags);
     }
 
-    std::pair<Vector3f, Float> sample(const PhaseFunctionContext & /* ctx */,
-                                      const MediumInteraction3f & /* mi */,
-                                      Float /* sample1 */,
-                                      const Point2f &sample2,
-                                      Mask active) const override {
+    std::pair<Vector3f, Spectrum> sample(const PhaseFunctionContext & /* ctx */,
+                                         const MediumInteraction3f & /* mi */,
+                                         Float /* sample1 */,
+                                         const Point2f &sample2,
+                                         Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionSample, active);
 
         auto wo  = warp::square_to_uniform_sphere(sample2);
-        auto pdf = warp::square_to_uniform_sphere_pdf(wo);
-        return { wo, pdf };
+        // auto pdf = warp::square_to_uniform_sphere_pdf(wo);
+        return { wo, UnpolarizedSpectrum(1.f) };
     }
 
-    Float eval(const PhaseFunctionContext & /* ctx */, const MediumInteraction3f & /* mi */,
+    Spectrum eval(const PhaseFunctionContext & /* ctx */, const MediumInteraction3f & /* mi */,
+                  const Vector3f &wo, Mask active) const override {
+        MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionEvaluate, active);
+        return UnpolarizedSpectrum(warp::square_to_uniform_sphere_pdf(wo));
+    }
+    
+    Float pdf(const PhaseFunctionContext & /* ctx */, const MediumInteraction3f & /* mi */,
                const Vector3f &wo, Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionEvaluate, active);
         return warp::square_to_uniform_sphere_pdf(wo);

@@ -75,11 +75,11 @@ public:
         m_distr.update();
     }
 
-    std::pair<Vector3f, Float> sample(const PhaseFunctionContext & /* ctx */,
-                                      const MediumInteraction3f &mi,
-                                      Float /* sample1 */,
-                                      const Point2f &sample2,
-                                      Mask active) const override {
+    std::pair<Vector3f, Spectrum> sample(const PhaseFunctionContext & /* ctx */,
+                                         const MediumInteraction3f &mi,
+                                         Float /* sample1 */,
+                                         const Point2f &sample2,
+                                         Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionSample, active);
 
         // Sample a direction in physics convention.
@@ -100,12 +100,12 @@ public:
         Float pdf = m_distr.eval_pdf_normalized(cos_theta_prime, active) *
                     dr::InvTwoPi<ScalarFloat>;
 
-        return { wo, pdf };
+        return { wo, UnpolarizedSpectrum(1.f) };
     }
 
-    Float eval(const PhaseFunctionContext & /* ctx */,
-               const MediumInteraction3f &mi, const Vector3f &wo,
-               Mask active) const override {
+    Spectrum eval(const PhaseFunctionContext & /* ctx */,
+                  const MediumInteraction3f &mi, const Vector3f &wo,
+                  Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionEvaluate, active);
 
         // The data is laid out in physics convention
@@ -113,10 +113,21 @@ public:
         // This parameterization differs from the convention used internally by
         // Mitsuba and is the reason for the minus sign below.
         Float cos_theta = -dot(wo, mi.wi);
-        return m_distr.eval_pdf_normalized(cos_theta, active) *
-               dr::InvTwoPi<ScalarFloat>;
+        return UnpolarizedSpectrum(m_distr.eval_pdf_normalized(cos_theta, active) *
+               dr::InvTwoPi<ScalarFloat>);
     }
 
+    Float pdf(const PhaseFunctionContext & /* ctx */,
+               const MediumInteraction3f &mi, const Vector3f &wo,
+               Mask active) const override {
+        MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionEvaluate, active);
+
+        Float cos_theta = -dot(wo, mi.wi);
+        Float pdf = m_distr.eval_pdf_normalized(cos_theta, active) 
+                    * dr::InvTwoPi<ScalarFloat>;
+        return pdf;
+    }
+    
     std::string to_string() const override {
         std::ostringstream oss;
         oss << "TabulatedPhaseFunction[" << std::endl
