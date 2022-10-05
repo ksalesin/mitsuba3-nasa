@@ -17,6 +17,20 @@
 
 NAMESPACE_BEGIN(mitsuba)
 
+/// Supported base AOV types
+/// This is what the Integrator stores in the image block in addition to
+/// any custom AOVs in the child integrator
+enum class BaseAOVType : uint32_t {
+    /// Store colors in RGB form, alpha value, weight value
+    RGBAW = 0,
+
+    /// Store only final radiance intensity value (mimicking a radiance meter)
+    I = 1,
+
+    /// Store Stokes vector in IQUV form (mimicking a polarimeter)
+    IQUV = 2
+};
+
 /**
  * \brief Abstract integrator base class, which does not make any assumptions
  * with regards to how radiance is computed.
@@ -91,6 +105,36 @@ public:
                     uint32_t spp = 0,
                     bool develop = true,
                     bool evaluate = true);
+
+    /**
+     * \brief Perform the main rendering job. 
+     * 
+     * Instead of writing a multi-pixel image,
+     * this render loop returns the normalized radiance of all paths.
+     * Designed to mimic a scientific radiance meter or polarimeter.
+     */
+    virtual Spectrum render_radiance_meter(Scene *scene,
+                                           Sensor *sensor,
+                                           uint32_t seed = 0,
+                                           uint32_t spp = 0,
+                                           bool develop = true,
+                                           bool evaluate = true,
+                                           size_t thread_count = 0) = 0;
+
+    /**
+     * \brief Render the scene
+     *
+     * This function is just a thin wrapper around the previous \ref render()
+     * overload. It accepts a sensor *index* instead and renders the scene
+     * using sensor 0 by default.
+     */
+    Spectrum render_radiance_meter(Scene *scene,
+                    uint32_t sensor_index = 0,
+                    uint32_t seed = 0,
+                    uint32_t spp = 0,
+                    bool develop = true,
+                    bool evaluate = true,
+                    size_t thread_count = 0);
 
     /// \brief Cancel a running render job (e.g. after receiving Ctrl-C)
     virtual void cancel();
@@ -215,6 +259,14 @@ public:
                     bool develop = true,
                     bool evaluate = true) override;
 
+    virtual Spectrum render_radiance_meter(Scene *scene,
+                                           Sensor *sensor,
+                                           uint32_t seed = 0,
+                                           uint32_t spp = 0,
+                                           bool develop = true,
+                                           bool evaluate = true,
+                                           size_t thread_count = 0) override;
+
     //! @}
     // =========================================================================
 
@@ -232,6 +284,11 @@ protected:
                               uint32_t seed,
                               uint32_t block_id,
                               uint32_t block_size) const;
+
+
+    Spectrum to_sensor_mueller(const Sensor *sensor, 
+                               const Ray3f &ray, 
+                               const Spectrum &spec) const;
 
     void render_sample(const Scene *scene,
                        const Sensor *sensor,
@@ -254,6 +311,9 @@ protected:
      * If set to (uint32_t) -1, all the work is done in a single pass (default).
      */
     uint32_t m_samples_per_pass;
+
+    /// Type of base AOVs that should be stored in the image block
+    BaseAOVType m_aov_type;
 };
 
 /** \brief Abstract integrator that performs *recursive* Monte Carlo sampling

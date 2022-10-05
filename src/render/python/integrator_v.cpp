@@ -229,6 +229,24 @@ MI_PY_EXPORT(Integrator) {
             },
             D(Integrator, render, 2), "scene"_a, "sensor"_a = 0,
             "seed"_a = 0, "spp"_a = 0, "develop"_a = true, "evaluate"_a = true)
+        .def(
+            "render_radiance_meter",
+            [&](Integrator *integrator, Scene *scene, Sensor *sensor,
+                uint32_t seed, uint32_t spp, bool develop, bool evaluate, size_t thread_count) {
+                py::gil_scoped_release release;
+                ScopedSignalHandler sh(integrator);
+                return integrator->render_radiance_meter(scene, sensor, seed, spp, develop,
+                                          evaluate, thread_count);
+            })
+        .def(
+            "render_radiance_meter",
+            [&](Integrator *integrator, Scene *scene, uint32_t sensor_index,
+                uint32_t seed, uint32_t spp, bool develop, bool evaluate, size_t thread_count) {
+                py::gil_scoped_release release;
+                ScopedSignalHandler sh(integrator);
+                return integrator->render_radiance_meter(scene, sensor_index, seed, spp,
+                                          develop, evaluate, thread_count);
+            })
         .def_method(Integrator, cancel)
         .def_method(Integrator, should_stop)
         .def_method(Integrator, aov_names);

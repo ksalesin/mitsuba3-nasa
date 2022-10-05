@@ -41,6 +41,21 @@ Integrator<Float, Spectrum>::render(Scene *scene,
                   seed, spp, develop, evaluate);
 }
 
+MI_VARIANT Spectrum
+Integrator<Float, Spectrum>::render_radiance_meter(Scene *scene,
+                                                   uint32_t sensor_index,
+                                                   uint32_t seed,
+                                                   uint32_t spp,
+                                                   bool develop,
+                                                   bool evaluate,
+                                                   size_t thread_count) {
+    if (sensor_index >= scene->sensors().size())
+        Throw("Scene::render_radiance_meter(): sensor index %i is out of bounds!", sensor_index);
+
+    return render_radiance_meter(scene, scene->sensors()[sensor_index].get(),
+                  seed, spp, develop, evaluate, thread_count);
+}
+
 MI_VARIANT std::vector<std::string> Integrator<Float, Spectrum>::aov_names() const {
     return { };
 }
@@ -65,6 +80,29 @@ MI_VARIANT SamplingIntegrator<Float, Spectrum>::SamplingIntegrator(const Propert
     }
 
     m_samples_per_pass = props.get<uint32_t>("samples_per_pass", (uint32_t) -1);
+
+    if (props.has_property("aov_type")) {
+        std::string aov_type = string::to_lower(props.string("aov_type"));
+        if (aov_type == "rgbaw")
+            m_aov_type = BaseAOVType::RGBAW;
+        else if (aov_type == "radiance")
+            m_aov_type = BaseAOVType::I;
+        else if (aov_type == "iquv")
+            m_aov_type = BaseAOVType::IQUV;
+        else
+            Throw("Specified an invalid AOV type \"%s\", must be "
+                    "\"rgbaw\", \"radiance\", or \"iquv\"!", aov_type.c_str());
+    } else {
+        m_aov_type = BaseAOVType::RGBAW;
+    }
+
+    if (m_aov_type == BaseAOVType::IQUV)
+        if constexpr (!is_polarized_v<Spectrum>)
+            Throw("AOV type \"iquv\" may only be used in polarized mode!");
+
+    if (m_aov_type == BaseAOVType::IQUV || m_aov_type == BaseAOVType::I)
+        if constexpr (is_rgb_v<Spectrum>)
+            Throw("AOV types \"radiance\" or \"iquv\" may only be used in monochromatic or spectral mode!");
 }
 
 MI_VARIANT SamplingIntegrator<Float, Spectrum>::~SamplingIntegrator() { }
@@ -308,6 +346,395 @@ SamplingIntegrator<Float, Spectrum>::render(Scene *scene,
     return result;
 }
 
+MI_VARIANT Spectrum 
+SamplingIntegrator<Float, Spectrum>::render_radiance_meter(Scene *scene,
+                                            Sensor *sensor,
+                                            uint32_t seed,
+                                            uint32_t spp,
+                                            bool /* develop */,
+                                            bool evaluate,
+                                            size_t thread_count) {
+    ScopedPhase sp(ProfilerPhase::Render);
+    m_stop = false;
+
+    if (thread_count > 0) {
+        Thread::set_thread_count(thread_count);
+    }
+
+    if constexpr (is_rgb_v<Spectrum>)
+        Throw("This render loop only supports monochromatic and spectral modes!");
+
+    ref<Film> film = sensor->film();
+    ScalarVector2u film_size = film->crop_size();
+
+    // if (film_size != ScalarPoint2i(1, 1))
+    //     Throw("This render loop only supports films of size 1x1 Pixels!");
+
+    // Potentially adjust the number of samples per pixel if spp != 0
+    Sampler *sampler = sensor->sampler();
+    if (spp)
+        sampler->set_sample_count(spp);
+    spp = sampler->sample_count();
+
+    uint32_t spp_per_pass = (m_samples_per_pass == (uint32_t) -1)
+                                    ? spp
+                                    : std::min(m_samples_per_pass, spp);
+
+    if ((spp % spp_per_pass) != 0)
+        Throw("sample_count (%d) must be a multiple of spp_per_pass (%d).",
+              spp, spp_per_pass);
+
+    uint32_t n_passes = spp / spp_per_pass;
+    uint32_t total_samples = spp_per_pass * n_passes;
+    uint32_t total_samples_done = 0;
+
+    std::vector<std::string> channels = aov_names();
+
+    // Insert default channels
+    if (m_aov_type == BaseAOVType::I) {
+        if constexpr(is_monochromatic_v<Spectrum>) {
+            channels.insert(channels.begin(), std::string("I"));
+        } else if constexpr (is_spectral_v<Spectrum>) {
+            size_t n_wav = dr::array_size_v<UnpolarizedSpectrum>;
+            for (size_t i = 0; i < n_wav; ++i)
+                channels.insert(channels.begin(), std::string("I." + std::to_string(i)));
+        }
+    } else if (m_aov_type == BaseAOVType::IQUV) {
+        if constexpr(is_monochromatic_v<Spectrum>) {
+            for (size_t i = 0; i < 4; ++i)
+                channels.insert(channels.begin() + i, std::string(1, "IQUV"[i]));
+        } else if constexpr(is_spectral_v<Spectrum>) {
+            size_t n_wav = dr::array_size_v<UnpolarizedSpectrum>;
+            for (size_t i = 0; i < 4; ++i)
+                for (size_t k = 0; k < n_wav; ++k) {
+                    size_t j = i * n_wav + k;
+                    channels.insert(channels.begin() + j, std::string(1, "IQUV"[i]) + "." + std::to_string(k));
+                }
+        }
+    } else if (m_aov_type == BaseAOVType::RGBAW) {
+        for (size_t i = 0; i < 5; ++i)
+            channels.insert(channels.begin() + i, std::string(1, "RGBAW"[i]));
+    }
+
+    size_t n_channels = channels.size();
+
+    const ScalarPoint2i block_offset(0, 0);
+
+    // Initialize final block
+    ref<ImageBlock> final_block = new ImageBlock(film_size,
+                                                 block_offset,
+                                                 n_channels,
+                                                 film->rfilter(),
+                                                 /* border */ false,
+                                                 /* normalize */ false,
+                                                 /* coalesce */ false,
+                                                 /* warn_negative */ false,
+                                                 /* warn_invalid */ false);
+    final_block->clear();
+
+    // Start the render timer (used for timeouts & log messages)
+    m_render_timer.reset();
+
+    if constexpr (!dr::is_jit_v<Float>) {
+        uint32_t n_threads = (uint32_t) Thread::thread_count();
+
+        Log(Info, "Starting render job (%ux%u, %u sample%s,%s %u thread%s)",
+            film_size.x(), film_size.y(), spp, spp == 1 ? "" : "s",
+            n_passes > 1 ? tfm::format(" %u passes,", n_passes) : "", n_threads,
+            n_threads == 1 ? "" : "s");
+
+        if (m_timeout > 0.f)
+            Log(Info, "Timeout specified: %.2f seconds.", m_timeout);
+
+        // Assumes film size is square
+        uint32_t block_size = film_size.x();
+
+        ref<ProgressReporter> progress = new ProgressReporter("Rendering");
+        std::mutex mutex;
+
+        // Grain size for parallelization
+        uint32_t grain_size = std::max(total_samples / (4 * n_threads), 1u);
+
+        // Avoid overlaps in RNG seeding RNG when a seed is manually specified
+        seed *= dr::prod(film_size);
+
+        ThreadEnvironment env;
+        dr::parallel_for(
+            dr::blocked_range<size_t>(0, total_samples, grain_size),
+            [&](const dr::blocked_range<size_t> &range) {
+                ScopedSetThreadEnvironment set_env(env);
+                // Fork a non-overlapping sampler for the current worker
+                ref<Sampler> sampler = sensor->sampler()->fork();
+
+                // Initialize block
+                ref<ImageBlock> block = new ImageBlock(film_size,
+                                                       block_offset,
+                                                       n_channels,
+                                                       film->rfilter(),
+                                                       /* border */ false,
+                                                       /* normalize */ false,
+                                                       /* coalesce */ false,
+                                                       /* warn_negative */ false,
+                                                       /* warn_invalid */ false);
+                block->clear();
+
+                std::unique_ptr<Float[]> aovs(new Float[n_channels]);
+
+                uint32_t range_size = range.end() - range.begin();
+
+                render_block(scene, sensor, sampler, block, aovs.get(),
+                             range_size, seed, 0u, block_size);
+
+                /* Critical section: update image and progress bar */ {
+                    std::lock_guard<std::mutex> lock(mutex);
+                    final_block->put_block(block);
+
+                    total_samples_done += range_size;
+                    progress->update(total_samples_done / (ScalarFloat) total_samples);
+                }
+            }
+        );
+
+    } else {
+        dr::sync_thread(); // Separate from scene initialization (for timings)
+
+        Log(Info, "Starting render job (%ux%u, %u sample%s%s)",
+            film_size.x(), film_size.y(), spp, spp == 1 ? "" : "s",
+            n_passes > 1 ? tfm::format(", %u passes,", n_passes) : "");
+
+        if (n_passes > 1 && !evaluate) {
+            Log(Warn, "render(): forcing 'evaluate=true' since multi-pass "
+                      "rendering was requested.");
+            evaluate = true;
+        }
+
+        size_t wavefront_size = (size_t) film_size.x() *
+                                (size_t) film_size.y() * (size_t) spp_per_pass,
+               wavefront_size_limit =
+                   dr::is_llvm_v<Float> ? 0xffffffffu : 0x40000000u;
+
+        if (wavefront_size > wavefront_size_limit)
+            Throw("Tried to perform a %s-based rendering with a total sample "
+                  "count of %zu, which exceeds 2^%zu = %zu (the upper limit "
+                  "for this backend). Please use fewer samples per pixel or "
+                  "render using multiple passes.",
+                  dr::is_llvm_v<Float> ? "LLVM JIT" : "OptiX",
+                  wavefront_size, dr::log2i(wavefront_size_limit + 1),
+                  wavefront_size_limit);
+
+        // Inform the sampler about the passes (needed in vectorized modes)
+        sampler->set_samples_per_wavefront(spp_per_pass);
+
+        // Seed the underlying random number generators, if applicable
+        sampler->seed(seed, (uint32_t) wavefront_size);
+
+        // Only use the ImageBlock coalescing feature when rendering enough samples
+        final_block->set_coalesce(final_block->coalesce() && spp_per_pass >= 4);
+
+        // Compute discrete sample position
+        UInt32 idx = dr::arange<UInt32>((uint32_t) wavefront_size);
+
+        // Try to avoid a division by an unknown constant if we can help it
+        uint32_t log_spp_per_pass = dr::log2i(spp_per_pass);
+        if ((1u << log_spp_per_pass) == spp_per_pass)
+            idx >>= dr::opaque<UInt32>(log_spp_per_pass);
+        else
+            idx /= dr::opaque<UInt32>(spp_per_pass);
+
+        // Compute the position on the image plane
+        Vector2u pos;
+        pos.y() = idx / film_size[0];
+        pos.x() = dr::fnmadd(film_size[0], pos.y(), idx);
+
+        // if (film->sample_border())
+        //     pos -= film->rfilter()->border_size();
+
+        // pos += film->crop_offset();
+
+        // Scale factor that will be applied to ray differentials
+        ScalarFloat diff_scale_factor = dr::rsqrt((ScalarFloat) spp);
+        
+        Timer timer;
+        std::unique_ptr<Float[]> aovs(new Float[n_channels]);
+
+        for (size_t i = 0; i < n_passes; i++) {
+            render_sample(scene, sensor, sampler, final_block, aovs.get(), pos, 
+                          diff_scale_factor, true);
+
+            total_samples_done += spp_per_pass;
+
+            if (n_passes > 1) {
+                sampler->advance(); // Will trigger a kernel launch of size 1
+                sampler->schedule_state();
+                dr::eval(final_block->tensor());
+            }
+        }
+
+        if (n_passes == 1 && jit_flag(JitFlag::VCallRecord) &&
+            jit_flag(JitFlag::LoopRecord)) {
+            Log(Info, "Computation graph recorded. (took %s)",
+                util::time_string((float) timer.reset(), true));
+        }
+
+        // if (develop) {
+        //     result = film->develop();
+        //     dr::schedule(result);
+        // } else {
+        //     film->schedule_storage();
+        // }
+
+        if (evaluate) {
+            dr::eval();
+
+            if (n_passes == 1 && jit_flag(JitFlag::VCallRecord) &&
+                jit_flag(JitFlag::LoopRecord)) {
+                Log(Info, "Code generation finished. (took %s)",
+                    util::time_string((float) timer.value(), true));
+
+                /* Separate computation graph recording from the actual
+                   rendering time in single-pass mode */
+                m_render_timer.reset();
+            }
+
+            dr::sync_thread();
+        }
+    }
+
+    if (!m_stop && (evaluate || !dr::is_jit_v<Float>))
+        Log(Info, "Rendering finished. (took %s)",
+            util::time_string((float) m_render_timer.value(), true));
+
+    // Get radiance value and normalize
+    if (m_aov_type == BaseAOVType::I) {
+        // Total unpolarized radiance
+        if constexpr (is_monochromatic_v<Spectrum>) {
+            double i = 0.;
+
+            for (size_t x = 0; x < film_size.x(); x++) {
+                for (size_t y = 0; y < film_size.y(); y++) {
+                    const Vector2f pixel(x, y);
+                    std::unique_ptr<Float[]> pixel_aovs(new Float[n_channels]);
+
+                    final_block->read(pixel, pixel_aovs.get(), true);
+
+                    i += pixel_aovs[0];
+                }
+            }
+
+            i *= dr::rcp((float) film_size.x() * film_size.y() * total_samples_done);
+
+            return i;
+        } else if constexpr(is_spectral_v<Spectrum>) {
+            const size_t n_wav = dr::array_size_v<UnpolarizedSpectrum>;
+            dr::Array<double, n_wav> i;
+            
+            for (size_t x = 0; x < film_size.x(); x++) {
+                for (size_t y = 0; y < film_size.y(); y++) {
+                    const Vector2f pixel(x, y);
+                    std::unique_ptr<Float[]> pixel_aovs(new Float[n_channels]);
+
+                    final_block->read(pixel, pixel_aovs.get(), true);
+
+                    for (size_t k = 0; k < n_wav; ++k) {
+                        if constexpr(!dr::is_jit_v<Float>) {
+                            i[k] += pixel_aovs[k];
+                        } else {
+                            // TODO
+                        }
+                    }
+                }
+            }
+
+            i *= dr::rcp((float) film_size.x() * film_size.y() * total_samples_done);
+            
+            return i;
+        }
+
+    } else if (m_aov_type == BaseAOVType::IQUV) {
+        // Total polarized radiance / Stokes vector
+        if constexpr (is_monochromatic_v<Spectrum>) {
+            double i = 0.,
+                   q = 0.,
+                   u = 0.,
+                   v = 0.;
+
+            for (size_t x = 0; x < film_size.x(); x++) {
+                for (size_t y = 0; y < film_size.y(); y++) {
+                    const Vector2f pixel(x, y);
+                    std::unique_ptr<Float[]> pixel_aovs(new Float[n_channels]);
+
+                    final_block->read(pixel, pixel_aovs.get(), true);
+
+                    i += pixel_aovs[0];
+                    q += pixel_aovs[1];
+                    u += pixel_aovs[2];
+                    v += pixel_aovs[3];
+                }
+            }
+
+            i *= dr::rcp((float) film_size.x() * film_size.y() * total_samples_done);
+            q *= dr::rcp((float) film_size.x() * film_size.y() * total_samples_done);
+            u *= dr::rcp((float) film_size.x() * film_size.y() * total_samples_done);
+            v *= dr::rcp((float) film_size.x() * film_size.y() * total_samples_done);
+
+            if constexpr(is_polarized_v<Spectrum>) {
+                return MuellerMatrix<Float>(
+                    i, 0, 0, 0,
+                    q, 0, 0, 0,
+                    u, 0, 0, 0,
+                    v, 0, 0, 0
+                );
+            }
+        } else if constexpr(is_spectral_v<Spectrum>) {
+            const size_t n_wav = dr::array_size_v<UnpolarizedSpectrum>;
+            dr::Array<double, n_wav> i, q, u, v;
+
+            for (size_t k = 0; k < n_wav; k++) {
+                i[k] = 0.;
+                q[k] = 0.;
+                u[k] = 0.;
+                v[k] = 0.;
+            }
+
+            for (size_t x = 0; x < film_size.x(); x++) {
+                for (size_t y = 0; y < film_size.y(); y++) {
+                    const Vector2f pixel(x, y);
+                    std::unique_ptr<Float[]> pixel_aovs(new Float[n_channels]);
+
+                    final_block->read(pixel, pixel_aovs.get(), true);
+
+                    for (size_t k = 0; k < n_wav; k++) {
+                        if constexpr(!dr::is_jit_v<Float>) {
+                            i[k] += pixel_aovs[0 * n_wav + k];
+                            q[k] += pixel_aovs[1 * n_wav + k];
+                            u[k] += pixel_aovs[2 * n_wav + k];
+                            v[k] += pixel_aovs[3 * n_wav + k];
+                        } else {
+                            // TODO
+                        }
+                    }
+                }
+            }
+
+            i *= dr::rcp((float) film_size.x() * film_size.y() * total_samples_done);
+            q *= dr::rcp((float) film_size.x() * film_size.y() * total_samples_done);
+            u *= dr::rcp((float) film_size.x() * film_size.y() * total_samples_done);
+            v *= dr::rcp((float) film_size.x() * film_size.y() * total_samples_done);
+
+            if constexpr(is_polarized_v<Spectrum>) {
+                return MuellerMatrix<UnpolarizedSpectrum>(
+                    i, 0, 0, 0,
+                    q, 0, 0, 0,
+                    u, 0, 0, 0,
+                    v, 0, 0, 0
+                );
+            }
+        }
+    }
+
+    return 0.f;
+}
+
 MI_VARIANT void SamplingIntegrator<Float, Spectrum>::render_block(const Scene *scene,
                                                                    const Sensor *sensor,
                                                                    Sampler *sampler,
@@ -399,37 +826,94 @@ SamplingIntegrator<Float, Spectrum>::render_sample(const Scene *scene,
 
     auto [spec, valid] = sample(scene, sampler, ray, medium,
                aovs + (has_alpha ? 5 : 4) /* skip R,G,B,[A],W */, active);
+    // `aovs + 5` would need to be changed for 'radiance' or 'iquv' modes if there were other AOVs
 
     UnpolarizedSpectrum spec_u = unpolarized_spectrum(ray_weight * spec);
 
-    if (unlikely(has_flag(film->flags(), FilmFlags::Special))) {
-        film->prepare_sample(spec_u, ray.wavelengths, aovs,
-                             /*weight*/ 1.f,
-                             /*alpha */ dr::select(valid, Float(1.f), Float(0.f)),
-                             valid);
-    } else {
-        Color3f rgb;
-        if constexpr (is_spectral_v<Spectrum>)
-            rgb = spectrum_to_srgb(spec_u, ray.wavelengths, active);
-        else if constexpr (is_monochromatic_v<Spectrum>)
-            rgb = spec_u.x();
-        else
-            rgb = spec_u;
+    // Rotate Stokes vectors to common reference plane for addition
+    if constexpr (is_polarized_v<Spectrum>) {
+        spec = to_sensor_mueller(sensor, ray, spec);
+    }
 
-        aovs[0] = rgb.x();
-        aovs[1] = rgb.y();
-        aovs[2] = rgb.z();
+    if (m_aov_type == BaseAOVType::I) {
+        if constexpr (is_monochromatic_v<Spectrum>) {
+            aovs[0] = spec_u.x();
+        } else if constexpr (is_spectral_v<Spectrum>) {
+            for (size_t k = 0; k < dr::array_size_v<UnpolarizedSpectrum>; ++k)
+                aovs[k] = spec_u[k];
+        }
+    } else if (m_aov_type == BaseAOVType::IQUV) {
+        if constexpr (is_polarized_v<Spectrum>) {
+            auto const &stokes = spec.entry(0);
 
-        if (likely(has_alpha)) {
-            aovs[3] = dr::select(valid, Float(1.f), Float(0.f));
-            aovs[4] = 1.f;
+            if constexpr (is_monochromatic_v<Spectrum>) {
+                for (int i = 0; i < 4; ++i)
+                    aovs[i] = stokes[i].x();
+            } else if constexpr (is_spectral_v<Spectrum>) {
+                size_t n_wav = dr::array_size_v<UnpolarizedSpectrum>;
+                for (int i = 0; i < 4; ++i) 
+                    for (size_t k = 0; k < n_wav; ++k) {
+                        aovs[i * n_wav + k] = stokes[i][k];
+                    }
+            }
+        }
+    } else if (m_aov_type == BaseAOVType::RGBAW) {
+        if (unlikely(has_flag(film->flags(), FilmFlags::Special))) {
+            film->prepare_sample(spec_u, ray.wavelengths, aovs,
+                                /*weight*/ 1.f,
+                                /*alpha */ dr::select(valid, Float(1.f), Float(0.f)),
+                                valid);
         } else {
-            aovs[3] = 1.f;
+            Color3f rgb;
+            if constexpr (is_spectral_v<Spectrum>)
+                rgb = spectrum_to_srgb(spec_u, ray.wavelengths, active);
+            else if constexpr (is_monochromatic_v<Spectrum>)
+                rgb = spec_u.x();
+            else
+                rgb = spec_u;
+
+            aovs[0] = rgb.x();
+            aovs[1] = rgb.y();
+            aovs[2] = rgb.z();
+
+            if (likely(has_alpha)) {
+                aovs[3] = dr::select(valid, Float(1.f), Float(0.f));
+                aovs[4] = 1.f;
+            } else {
+                aovs[3] = 1.f;
+            }
         }
     }
 
     // With box filter, ignore random offset to prevent numerical instabilities
     block->put(box_filter ? pos : sample_pos, aovs, active);
+}
+
+/* The Stokes vector that comes from the integrator is still aligned
+    with the implicit Stokes frame used for the ray direction. Apply
+    one last rotation here s.t. it aligns with the sensor's x-axis. */
+MI_VARIANT Spectrum
+SamplingIntegrator<Float, Spectrum>::to_sensor_mueller(const Sensor *sensor, const Ray3f &ray, const Spectrum &spec) const {
+    if constexpr (is_polarized_v<Spectrum>) {
+        Vector3f current_basis = mueller::stokes_basis(-ray.d);
+        Vector3f vertical = Vector3f(0.f, 0.f, 1.f);
+        Vector3f tmp = dr::cross(-ray.d, vertical);
+
+        // Ray is pointing straight along vertical
+        Mask ray_is_vertical = dr::norm(tmp) < math::RayEpsilon<Float>;
+
+        Vector3f target_basis(0.f);
+        target_basis[ ray_is_vertical] = Vector3f(1.f, 0.f, 0.f);
+        target_basis[!ray_is_vertical] = dr::cross(-ray.d, dr::normalize(tmp));
+
+        Spectrum spec2sensor = mueller::rotate_stokes_basis(-ray.d,
+                                                            current_basis,
+                                                            target_basis);
+
+        return spec2sensor * spec;
+    } else {
+        return spec;
+    }
 }
 
 MI_VARIANT std::pair<Spectrum, typename SamplingIntegrator<Float, Spectrum>::Mask>
