@@ -116,10 +116,10 @@ public:
                     (uint32_t) m_nested_phase[0]->component_count();
             else
                 weight = 1.f - weight;
-            auto [wo, pdf] = m_nested_phase[sample_first ? 0 : 1]->sample(
+            auto [wo, val] = m_nested_phase[sample_first ? 0 : 1]->sample(
                 ctx2, mi, sample1, sample2, active);
-            pdf *= weight;
-            return { wo, pdf };
+            val *= weight;
+            return { wo, val };
         }
 
         Vector3f wo;

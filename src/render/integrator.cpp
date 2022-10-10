@@ -606,7 +606,6 @@ SamplingIntegrator<Float, Spectrum>::render_radiance_meter(Scene *scene,
 
     // Get radiance value and normalize
     if (m_aov_type == BaseAOVType::I) {
-        // Total unpolarized radiance
         if constexpr (is_monochromatic_v<Spectrum>) {
             double i = 0.;
 
@@ -627,6 +626,9 @@ SamplingIntegrator<Float, Spectrum>::render_radiance_meter(Scene *scene,
         } else if constexpr(is_spectral_v<Spectrum>) {
             const size_t n_wav = dr::array_size_v<UnpolarizedSpectrum>;
             dr::Array<double, n_wav> i;
+
+            for (size_t k = 0; k < n_wav; k++)
+                i[k] = 0.;
             
             for (size_t x = 0; x < film_size.x(); x++) {
                 for (size_t y = 0; y < film_size.y(); y++) {
@@ -639,7 +641,7 @@ SamplingIntegrator<Float, Spectrum>::render_radiance_meter(Scene *scene,
                         if constexpr(!dr::is_jit_v<Float>) {
                             i[k] += pixel_aovs[k];
                         } else {
-                            // TODO
+                            // i[k] += pixel_aovs[k];
                         }
                     }
                 }
@@ -710,7 +712,10 @@ SamplingIntegrator<Float, Spectrum>::render_radiance_meter(Scene *scene,
                             u[k] += pixel_aovs[2 * n_wav + k];
                             v[k] += pixel_aovs[3 * n_wav + k];
                         } else {
-                            // TODO
+                            // i[k] += pixel_aovs[0 * n_wav + k];
+                            // q[k] += pixel_aovs[1 * n_wav + k];
+                            // u[k] += pixel_aovs[2 * n_wav + k];
+                            // v[k] += pixel_aovs[3 * n_wav + k];
                         }
                     }
                 }
@@ -798,11 +803,13 @@ SamplingIntegrator<Float, Spectrum>::render_sample(const Scene *scene,
     const bool has_alpha = has_flag(film->flags(), FilmFlags::Alpha);
     const bool box_filter = film->rfilter()->is_box_filter();
 
-    ScalarVector2f scale = 1.f / ScalarVector2f(film->crop_size()),
-                   offset = -ScalarVector2f(film->crop_offset()) * scale;
+    // ScalarVector2f scale = 1.f / ScalarVector2f(film->crop_size()),
+    //                offset = -ScalarVector2f(film->crop_offset()) * scale;
 
-    Vector2f sample_pos   = pos + sampler->next_2d(active),
-             adjusted_pos = dr::fmadd(sample_pos, scale, offset);
+    // Vector2f sample_pos   = pos + sampler->next_2d(active),
+    //          adjusted_pos = dr::fmadd(sample_pos, scale, offset);
+
+    Vector2f sample_pos = pos, adjusted_pos = pos;
 
     Point2f aperture_sample(.5f);
     if (sensor->needs_aperture_sample())
@@ -886,7 +893,8 @@ SamplingIntegrator<Float, Spectrum>::render_sample(const Scene *scene,
     }
 
     // With box filter, ignore random offset to prevent numerical instabilities
-    block->put(box_filter ? pos : sample_pos, aovs, active);
+    // block->put(box_filter ? pos : sample_pos, aovs, active);
+    block->put(sample_pos, aovs, active);
 }
 
 /* The Stokes vector that comes from the integrator is still aligned

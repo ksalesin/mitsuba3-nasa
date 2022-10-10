@@ -104,11 +104,18 @@ public:
         ray.time = time;
 
         // 1. Sample spectrum
-        auto [wavelengths, wav_weight] =
-            sample_wavelengths(dr::zeros<SurfaceInteraction3f>(),
-                               wavelength_sample,
-                               active);
-        ray.wavelengths = wavelengths;
+        Spectrum wav_weight;
+        if (m_wavelength == -1.f) {
+            auto [wavelengths, weight] =
+                sample_wavelengths(dr::zeros<SurfaceInteraction3f>(),
+                                   wavelength_sample,
+                                   active);
+            ray.wavelengths = wavelengths;
+            wav_weight = weight;
+        } else {
+            ray.wavelengths = Float(m_wavelength);
+            wav_weight = 1.f;
+        }
 
         // 2. Set ray origin and direction
         ray.o = m_to_world.value().transform_affine(Point3f(0.f, 0.f, 0.f));
@@ -128,11 +135,18 @@ public:
         ray.time = time;
 
         // 1. Sample spectrum
-        auto [wavelengths, wav_weight] =
-            sample_wavelengths(dr::zeros<SurfaceInteraction3f>(),
-                               wavelength_sample,
-                               active);
-        ray.wavelengths = wavelengths;
+        Spectrum wav_weight;
+        if (m_wavelength == -1.f) {
+            auto [wavelengths, weight] =
+                sample_wavelengths(dr::zeros<SurfaceInteraction3f>(),
+                                   wavelength_sample,
+                                   active);
+            ray.wavelengths = wavelengths;
+            wav_weight = weight;
+        } else {
+            ray.wavelengths = Float(m_wavelength);
+            wav_weight = 1.f;
+        }
 
         // 2. Set ray origin and direction
         ray.o = m_to_world.value().transform_affine(Point3f(0.f, 0.f, 0.f));
@@ -161,6 +175,8 @@ public:
     }
 
     MI_DECLARE_CLASS()
+private:
+    ScalarFloat m_wavelength;
 };
 
 MI_IMPLEMENT_CLASS_VARIANT(RadianceMeter, Sensor)

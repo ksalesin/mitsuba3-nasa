@@ -224,6 +224,7 @@ public:
                   " be positive!");
 
         m_eta = int_ior / ext_ior;
+        m_inv_eta = ext_ior / int_ior;
 
         if (props.has_property("specular_reflectance"))
             m_specular_reflectance   = props.texture<Texture>("specular_reflectance", 1.f);
@@ -365,9 +366,96 @@ public:
         return { bs, weight & active };
     }
 
-    Spectrum eval(const BSDFContext & /* ctx */, const SurfaceInteraction3f & /* si */,
-                  const Vector3f & /* wo */, Mask /* active */) const override {
-        return 0.f;
+    Spectrum eval(const BSDFContext &ctx, const SurfaceInteraction3f &si,
+                  const Vector3f &wo, Mask active) const override {
+        // Evaluate the Fresnel equations for unpolarized illumination
+        Float cos_theta_i = Frame3f::cos_theta(si.wi),
+              cos_theta_o = Frame3f::cos_theta(wo);
+
+        // Ignore perfectly grazing configurations
+        active &= dr::neq(cos_theta_i, 0.f);
+
+        // Determine the type of interaction
+        bool has_reflection   = ctx.is_enabled(BSDFFlags::DeltaReflection, 0),
+             has_transmission = ctx.is_enabled(BSDFFlags::DeltaTransmission, 1);
+
+        Mask reflect = cos_theta_i * cos_theta_o > 0.f;
+
+        // Determine the relative index of refraction
+        Float eta     = dr::select(cos_theta_i > 0.f, m_eta, m_inv_eta),
+              inv_eta = dr::select(cos_theta_i > 0.f, m_inv_eta, m_eta);
+
+        // Fresnel factor
+        Float F = std::get<0>(fresnel(cos_theta_i, Float(m_eta)));
+
+        Spectrum result(0.f);
+
+        Mask eval_r = Mask(has_reflection) && reflect && active,
+             eval_t = Mask(has_transmission) && !reflect && active;
+
+        UnpolarizedSpectrum reflectance = 1.f, transmittance = 1.f;
+        if (m_specular_reflectance)
+            reflectance = m_specular_reflectance->eval(si, eval_r);
+        if (m_specular_transmittance)
+            transmittance = m_specular_transmittance->eval(si, eval_t);
+
+        Spectrum weight(0.f);
+        if constexpr (is_polarized_v<Spectrum>) {
+            /* Due to the coordinate system rotations for polarization-aware
+               pBSDFs below we need to know the propagation direction of light.
+               In the following, light arrives along `-wo_hat` and leaves along
+               `+wi_hat`. */
+            Vector3f wo_hat = ctx.mode == TransportMode::Radiance ? wo : si.wi,
+                     wi_hat = ctx.mode == TransportMode::Radiance ? si.wi : wo;
+
+            /* BSDF weights are Mueller matrices now. */
+            Float cos_theta_o_hat = Frame3f::cos_theta(wo_hat);
+            Spectrum R = mueller::specular_reflection(UnpolarizedSpectrum(cos_theta_o_hat), UnpolarizedSpectrum(m_eta)),
+                     T = mueller::specular_transmission(UnpolarizedSpectrum(cos_theta_o_hat), UnpolarizedSpectrum(m_eta));
+
+            weight[eval_r] = R;
+            weight[eval_t] = T;
+            
+            /* The Stokes reference frame vector of this matrix lies perpendicular
+               to the plane of reflection. */
+            Vector3f n(0, 0, 1);
+            Vector3f s_axis_in  = dr::normalize(dr::cross(n, -wo_hat)),
+                     s_axis_out = dr::normalize(dr::cross(n, wi_hat));
+
+            /* Rotate in/out reference vector of `weight` s.t. it aligns with the
+               implicit Stokes bases of -wo_hat & wi_hat. */
+            weight = mueller::rotate_mueller_basis(weight,
+                                                   -wo_hat, s_axis_in, mueller::stokes_basis(-wo_hat),
+                                                    wi_hat, s_axis_out, mueller::stokes_basis(wi_hat));
+
+            if (dr::any_or<true>(eval_r))
+                weight[eval_r] *= mueller::absorber(reflectance);
+
+            if (dr::any_or<true>(eval_t))
+                weight[eval_t] *= mueller::absorber(transmittance);
+
+        } else {
+            if (likely(has_reflection && has_transmission)) {
+                weight = 1.f;
+            } else if (has_reflection || has_transmission) {
+                weight = has_reflection ? F : 1.f - F;
+            }
+
+            if (dr::any_or<true>(eval_r))
+                weight[eval_r] *= reflectance;
+
+            if (dr::any_or<true>(eval_t))
+                weight[eval_t] *= transmittance;
+        }
+
+        if (dr::any_or<true>(eval_t)) {
+            /* For transmission, radiance must be scaled to account for the solid
+               angle compression that occurs when crossing the interface. */
+            Float factor = (ctx.mode == TransportMode::Radiance) ? inv_eta : Float(1.f);
+            weight[eval_t] *= dr::sqr(factor);
+        }
+
+        return weight;
     }
 
     Float pdf(const BSDFContext & /* ctx */, const SurfaceInteraction3f & /* si */,
@@ -390,6 +478,7 @@ public:
     MI_DECLARE_CLASS()
 private:
     ScalarFloat m_eta;
+    ScalarFloat m_inv_eta;
     ref<Texture> m_specular_reflectance;
     ref<Texture> m_specular_transmittance;
 };

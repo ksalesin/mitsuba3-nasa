@@ -1199,22 +1199,27 @@ ref<Object> create_texture_from_spectrum(const std::string &name,
 
     bool is_unbounded = is_unbounded_spectrum(name);
     if (wavelengths.empty()) {
-        if (!is_spectral_mode && within_emitter && !is_unbounded) {
-            /* A uniform spectrum does not produce a uniform RGB response in the
-               sRGB (which has a D65 white point). The call to 'xyz_to_srgb'
-               computes this purple-ish color and uses it to initialize the
-               'srgb' plugin. This is needed mainly for consistency between RGB
-               and spectral variants of Mitsuba. */
-            Color3f color = const_value * xyz_to_srgb(Color3f(1.0));
-            Properties props("srgb");
-            props.set_color("color", color);
-            props.set_bool("unbounded", true);
-            return PluginManager::instance()->create_object(props, class_);
-        } else {
-            Properties props("uniform");
-            props.set_float("value", const_value);
-            return PluginManager::instance()->create_object(props, class_);
-        }
+        // Always use uniform spectrum for scientific rendering
+        Properties props("uniform");
+        props.set_float("value", const_value);
+        return PluginManager::instance()->create_object(props, class_);
+
+        // if (!is_spectral_mode && within_emitter && !is_unbounded) {
+        //     /* A uniform spectrum does not produce a uniform RGB response in the
+        //        sRGB (which has a D65 white point). The call to 'xyz_to_srgb'
+        //        computes this purple-ish color and uses it to initialize the
+        //        'srgb' plugin. This is needed mainly for consistency between RGB
+        //        and spectral variants of Mitsuba. */
+        //     Color3f color = const_value * xyz_to_srgb(Color3f(1.0));
+        //     Properties props("srgb");
+        //     props.set_color("color", color);
+        //     props.set_bool("unbounded", true);
+        //     return PluginManager::instance()->create_object(props, class_);
+        // } else {
+        //     Properties props("uniform");
+        //     props.set_float("value", const_value);
+        //     return PluginManager::instance()->create_object(props, class_);
+        // }
     } else {
         /* Detect whether wavelengths are regularly sampled and potentially
            apply the conversion factor. */

@@ -194,7 +194,17 @@ public:
 
         m_sample_visible = props.get<bool>("sample_visible", true);
 
-        if (props.has_property("alpha_u") || props.has_property("alpha_v")) {
+        // "alpha_sq" is used to match reported results using surface slope variance as accurately as possible
+        if (props.has_property("alpha_sq")) {
+            if (props.has_property("alpha"))
+                Throw("Microfacet model: please specify either 'alpha' or 'alpha_sq'.");
+
+            ScalarFloat alpha_sq = props.get<ScalarFloat>("alpha_sq", 0.f);
+            Properties props2("uniform");
+            props2.set_float("value", dr::sqrt(alpha_sq));
+            PluginManager *pmgr = PluginManager::instance();
+            m_alpha_u = m_alpha_v = (Texture *) pmgr->create_object<Texture>(props2).get();
+        } else if (props.has_property("alpha_u") || props.has_property("alpha_v")) {
             if (!props.has_property("alpha_u") || !props.has_property("alpha_v"))
                 Throw("Microfacet model: both 'alpha_u' and 'alpha_v' must be specified.");
             if (props.has_property("alpha"))
@@ -282,9 +292,9 @@ public:
         if (likely(has_reflection && has_transmission)) {
             selected_r = sample1 <= F && active;
 
+            // TODO: Adapt to polarized version
             /* For differentiable variants, lobe choice has to be detached to avoid bias.
                 Sampling weights should be computed accordingly. */
-            // TODO: Incorporate this into polarized version
             // if constexpr (dr::is_diff_v<Float>) {
             //     if (dr::grad_enabled(F)) {
             //         weight = dr::select(selected_r, F / dr::detach(F), (1 - F) / (1.f - dr::detach(F)));
@@ -306,6 +316,10 @@ public:
         bs.sampled_type      = dr::select(selected_r,
                                       UInt32(+BSDFFlags::GlossyReflection),
                                       UInt32(+BSDFFlags::GlossyTransmission));
+
+        bs.wo = dr::select(selected_r,
+                           reflect(si.wi, m),
+                           refract(si.wi, m, cos_theta_t, eta_ti));
 
         Float dwh_dwo = 0.f;
 
@@ -343,25 +357,25 @@ public:
 
             // If the cross product s_axis_in or s_axis_out is too small, weight may be NaN
             dr::masked(weight, dr::isnan(weight)) = depolarizer<Spectrum>(0.f);
+        } else {
+            if (likely(has_reflection && has_transmission)) {
+                weight = 1.f;
+            } else if (has_reflection || has_transmission) {
+                weight = has_reflection ? F : 1.f - F;
+            }
         }
 
         // Reflection sampling
         if (dr::any_or<true>(selected_r)) {
-            // Perfect specular reflection based on the microfacet normal
-            bs.wo[selected_r] = reflect(si.wi, m);
-
             if (m_specular_reflectance)
                 weight[selected_r] *= m_specular_reflectance->eval(si, selected_r);
 
             // Jacobian of the half-direction mapping
-            dwh_dwo = dr::rcp(4.f * dr::dot(bs.wo, m));
+            dr::masked(dwh_dwo, selected_r) = dr::rcp(4.f * dr::dot(bs.wo, m));
         }
 
         // Transmission sampling
         if (dr::any_or<true>(selected_t)) {
-            // Perfect specular transmission based on the microfacet normal
-            bs.wo[selected_t]  = refract(si.wi, m, cos_theta_t, eta_ti);
-
             /* For transmission, radiance must be scaled to account for the solid
                angle compression that occurs when crossing the interface. */
             UnpolarizedSpectrum factor = (ctx.mode == TransportMode::Radiance) ? dr::sqr(eta_ti) : Float(1.f);
@@ -380,14 +394,14 @@ public:
         if (likely(m_sample_visible))
             weight *= distr.smith_g1(bs.wo, m);
         else
-            // weight *= distr.G(si.wi, bs.wo, m) * dr::dot(si.wi, m) /
-            //           (cos_theta_i * Frame3f::cos_theta(m));
             weight *= dr::dot(si.wi, m) /
                       (cos_theta_i * Frame3f::cos_theta(m));
+            // weight *= distr.G(si.wi, bs.wo, m) * dr::dot(si.wi, m) /
+            //           (cos_theta_i * Frame3f::cos_theta(m));
 
         bs.pdf *= dr::abs(dwh_dwo);
 
-        return { bs, depolarizer<Spectrum>(weight) & active };
+        return { bs, weight & active };
     }
 
     Spectrum eval(const BSDFContext &ctx, const SurfaceInteraction3f &si,
@@ -430,9 +444,10 @@ public:
         Float F = std::get<0>(fresnel(dr::dot(si.wi, m), m_eta));
 
         // Smith's shadow-masking function
-        Float G = distr.G(si.wi, wo, m);
+        // Float G = distr.G(si.wi, wo, m);
+        Float G = 1.f;
 
-        UnpolarizedSpectrum result(0.f);
+        Spectrum result(0.f);
 
         Mask eval_r = Mask(has_reflection) && reflect && active,
              eval_t = Mask(has_transmission) && !reflect && active;
@@ -467,10 +482,18 @@ public:
 
             // If the cross product s_axis_in or s_axis_out is too small, weight may be NaN
             dr::masked(weight, dr::isnan(weight)) = depolarizer<Spectrum>(0.f);
+        } else {
+            if (dr::any_or<true>(eval_r)) {
+                weight[eval_r] = F;
+            }
+
+            if (dr::any_or<true>(eval_t)) {
+                weight[eval_t] = 1.f - F;
+            }   
         }
 
         if (dr::any_or<true>(eval_r)) {
-            UnpolarizedSpectrum value = F * D * G / (4.f * dr::abs(cos_theta_i));
+            Spectrum value = weight * D * G / (4.f * dr::abs(cos_theta_i));
 
             if (m_specular_reflectance)
                 value *= m_specular_reflectance->eval(si, eval_r);
@@ -485,8 +508,8 @@ public:
             Float scale = (ctx.mode == TransportMode::Radiance) ? dr::sqr(inv_eta) : Float(1.f);
 
             // Compute the total amount of transmission
-            UnpolarizedSpectrum value = dr::abs(
-                (scale * (1.f - F) * D * G * eta * eta * dr::dot(si.wi, m) * dr::dot(wo, m)) /
+            Spectrum value = dr::abs(
+                (scale * weight * D * G * eta * eta * dr::dot(si.wi, m) * dr::dot(wo, m)) /
                 (cos_theta_i * dr::sqr(dr::dot(si.wi, m) + eta * dr::dot(wo, m))));
 
             if (m_specular_transmittance)
@@ -495,7 +518,7 @@ public:
             result[eval_t] = value;
         }
 
-        return depolarizer<Spectrum>(result);
+        return result;
     }
 
     Float pdf(const BSDFContext &ctx, const SurfaceInteraction3f &si,

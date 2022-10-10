@@ -251,6 +251,35 @@ public:
         return { ray, ray_weight & active };
     }
 
+    std::pair<DirectionSample3f, Spectrum>
+    sample_direction(const Interaction3f &it, const Point2f & /*sample*/,
+                     Mask active) const override {
+        MI_MASKED_FUNCTION(ProfilerPhase::EndpointSampleDirection, active);
+
+        Vector3f d = m_to_world.value().transform_affine(Vector3f(0.f, 0.f, 1.f));
+        Float dist = dr::Infinity<Float>;
+
+        DirectionSample3f ds;
+        ds.p      = it.p - d * dist;
+        ds.n      = d;
+        ds.uv     = Point2f(0.5f);
+        ds.time   = it.time;
+        ds.pdf    = 1.f;
+        ds.delta  = true;
+        ds.d      = -d;
+        ds.dist   = dist;
+
+        SurfaceInteraction3f si = dr::zeros<SurfaceInteraction3f>();
+        si.wavelengths          = it.wavelengths;
+        
+        // Float cos_theta = Frame3f::cos_theta(-d);
+
+        // Emitting importance
+        UnpolarizedSpectrum imp = 1.f;
+
+        return { ds, imp };
+    }
+    
     // This sensor does not occupy any particular region of space, return an
     // invalid bounding box
     ScalarBoundingBox3f bbox() const override { return ScalarBoundingBox3f(); }

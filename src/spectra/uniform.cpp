@@ -68,6 +68,8 @@ public:
 
         if constexpr (is_spectral_v<Spectrum>)
             return UnpolarizedSpectrum(m_value);
+        else if constexpr (is_monochromatic_v<Spectrum>)
+            return UnpolarizedSpectrum(m_value);
         else
             return m_value;
     }
@@ -77,17 +79,26 @@ public:
         return m_value;
     }
 
-    Wavelength pdf_spectrum(const SurfaceInteraction3f & /*si*/, Mask /*active*/) const override {
-        NotImplementedError("pdf");
+    Wavelength pdf_spectrum(const SurfaceInteraction3f &si, Mask active) const override {
+        MI_MASKED_FUNCTION(ProfilerPhase::TextureEvaluate, active);
+
+        if constexpr (is_monochromatic_v<Spectrum>) {
+            return Wavelength(1.f);
+        } else {
+            NotImplementedError("pdf");
+        }
     }
 
     std::pair<Wavelength, UnpolarizedSpectrum>
-    sample_spectrum(const SurfaceInteraction3f & /*si*/,
+    sample_spectrum(const SurfaceInteraction3f & si,
                     const Wavelength & sample, Mask /*active*/) const override {
         if constexpr (is_spectral_v<Spectrum>) {
             return { m_range.x() +
                          (m_range.y() - m_range.x()) * sample,
                      m_value * (m_range.y() - m_range.x()) };
+        } else if constexpr (is_monochromatic_v<Spectrum>) {
+            DRJIT_MARK_USED(sample);
+            return { si.wavelengths, UnpolarizedSpectrum(m_value) };
         } else {
             DRJIT_MARK_USED(sample);
             return { dr::empty<Wavelength>(), m_value };

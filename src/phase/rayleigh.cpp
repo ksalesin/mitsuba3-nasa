@@ -109,9 +109,7 @@ public:
         Float sin_theta = dr::safe_sqrt(1.0f - dr::sqr(cos_theta));
         auto [sin_phi, cos_phi] = dr::sincos(dr::TwoPi<Float> * sample.y());
 
-        auto wo = Vector3f{ sin_theta * cos_phi, sin_theta * sin_phi, cos_theta };
-
-        wo = mi.to_world(wo);
+        auto wo = Vector3f( sin_theta * cos_phi, sin_theta * sin_phi, cos_theta );
         Float pdf = eval_rayleigh_pdf(cos_theta);
 
         Spectrum phase_val = eval_rayleigh(ctx, mi, wo, cos_theta) * dr::rcp(pdf);

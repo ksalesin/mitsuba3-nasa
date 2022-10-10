@@ -152,13 +152,13 @@ public:
 
         Vector3f d = m_to_world.value().transform_affine(Vector3f{ 0.f, 0.f, 1.f });
         // Needed when the reference point is on the sensor, which is not part of the bbox
-        Float radius = dr::maximum(m_bsphere.radius, dr::norm(it.p - m_bsphere.center));
-        Float dist = 2.f * radius;
-
+        // Float radius = dr::maximum(m_bsphere.radius, dr::norm(it.p - m_bsphere.center));
+        // Float dist = 2.f * radius;
+        Float dist = dr::Infinity<Float>;
         DirectionSample3f ds;
         ds.p      = it.p - d * dist;
         ds.n      = d;
-        ds.uv     = Point2f(0.f);
+        ds.uv     = Point2f(0.5f);
         ds.time   = it.time;
         ds.pdf    = 1.f;
         ds.delta  = true;

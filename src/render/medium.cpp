@@ -42,7 +42,7 @@ Medium<Float, Spectrum>::sample_interaction(const Ray3f &ray, Float sample,
     // initialize basic medium interaction fields
     MediumInteraction3f mei = dr::zeros<MediumInteraction3f>();
     // mei.wi          = -ray.d;
-    mei.sh_frame    = Frame3f(mei.wi);
+    mei.sh_frame    = Frame3f(ray.d);
     mei.time        = ray.time;
     mei.wavelengths = ray.wavelengths;
 
@@ -71,6 +71,7 @@ Medium<Float, Spectrum>::sample_interaction(const Ray3f &ray, Float sample,
     Mask valid_mi   = active && (sampled_t <= maxt);
     mei.t           = dr::select(valid_mi, sampled_t, dr::Infinity<Float>);
     mei.p           = ray(sampled_t);
+    mei.n           = Normal3f(0.f); // So that spawn_ray in interaction.h will not add an offset
     mei.medium      = this;
     mei.mint        = mint;
 
