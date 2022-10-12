@@ -803,13 +803,13 @@ SamplingIntegrator<Float, Spectrum>::render_sample(const Scene *scene,
     const bool has_alpha = has_flag(film->flags(), FilmFlags::Alpha);
     const bool box_filter = film->rfilter()->is_box_filter();
 
-    // ScalarVector2f scale = 1.f / ScalarVector2f(film->crop_size()),
-    //                offset = -ScalarVector2f(film->crop_offset()) * scale;
+    ScalarVector2f scale = 1.f / ScalarVector2f(film->crop_size()),
+                   offset = -ScalarVector2f(film->crop_offset()) * scale;
 
-    // Vector2f sample_pos   = pos + sampler->next_2d(active),
-    //          adjusted_pos = dr::fmadd(sample_pos, scale, offset);
+    Vector2f sample_pos   = pos + sampler->next_2d(active),
+             adjusted_pos = dr::fmadd(sample_pos, scale, offset);
 
-    Vector2f sample_pos = pos, adjusted_pos = pos;
+    // Vector2f sample_pos = pos, adjusted_pos = pos;
 
     Point2f aperture_sample(.5f);
     if (sensor->needs_aperture_sample())
