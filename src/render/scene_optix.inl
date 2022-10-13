@@ -350,6 +350,9 @@ MI_VARIANT void Scene<Float, Spectrum>::accel_parameters_changed_gpu() {
                     &buffer_sizes
                 ));
 
+                if (s.ias_buffer)
+                    jit_free(s.ias_buffer);
+
                 void* d_temp_buffer
                     = jit_malloc(AllocType::Device, buffer_sizes.tempSizeInBytes);
                 s.ias_buffer
@@ -371,6 +374,7 @@ MI_VARIANT void Scene<Float, Spectrum>::accel_parameters_changed_gpu() {
                 ));
 
                 jit_free(d_temp_buffer);
+                jit_free(build_input.instanceArray.instances);
             }
         }
 
@@ -395,8 +399,6 @@ MI_VARIANT void Scene<Float, Spectrum>::accel_parameters_changed_gpu() {
             },
             (void *) s.ias_buffer
         );
-
-        clear_shapes_dirty();
     }
 }
 
