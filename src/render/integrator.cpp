@@ -616,7 +616,11 @@ SamplingIntegrator<Float, Spectrum>::render_radiance_meter(Scene *scene,
 
                     final_block->read(pixel, pixel_aovs.get(), true);
 
-                    i += pixel_aovs[0];
+                    if constexpr(!dr::is_jit_v<Float>) {
+                        i += pixel_aovs[0];
+                    } else {
+                        i += pixel_aovs[0][0];
+                    }
                 }
             }
 
@@ -641,7 +645,7 @@ SamplingIntegrator<Float, Spectrum>::render_radiance_meter(Scene *scene,
                         if constexpr(!dr::is_jit_v<Float>) {
                             i[k] += pixel_aovs[k];
                         } else {
-                            // i[k] += pixel_aovs[k];
+                            i[k] += pixel_aovs[k][0];
                         }
                     }
                 }
@@ -667,10 +671,17 @@ SamplingIntegrator<Float, Spectrum>::render_radiance_meter(Scene *scene,
 
                     final_block->read(pixel, pixel_aovs.get(), true);
 
-                    i += pixel_aovs[0];
-                    q += pixel_aovs[1];
-                    u += pixel_aovs[2];
-                    v += pixel_aovs[3];
+                    if constexpr(!dr::is_jit_v<Float>) {
+                        i += pixel_aovs[0];
+                        q += pixel_aovs[1];
+                        u += pixel_aovs[2];
+                        v += pixel_aovs[3];
+                    } else {
+                        i += pixel_aovs[0][0];
+                        q += pixel_aovs[1][0];
+                        u += pixel_aovs[2][0];
+                        v += pixel_aovs[3][0];
+                    }
                 }
             }
 
@@ -712,10 +723,10 @@ SamplingIntegrator<Float, Spectrum>::render_radiance_meter(Scene *scene,
                             u[k] += pixel_aovs[2 * n_wav + k];
                             v[k] += pixel_aovs[3 * n_wav + k];
                         } else {
-                            // i[k] += pixel_aovs[0 * n_wav + k];
-                            // q[k] += pixel_aovs[1 * n_wav + k];
-                            // u[k] += pixel_aovs[2 * n_wav + k];
-                            // v[k] += pixel_aovs[3 * n_wav + k];
+                            i[k] += pixel_aovs[0 * n_wav + k][0];
+                            q[k] += pixel_aovs[1 * n_wav + k][0];
+                            u[k] += pixel_aovs[2 * n_wav + k][0];
+                            v[k] += pixel_aovs[3 * n_wav + k][0];
                         }
                     }
                 }
