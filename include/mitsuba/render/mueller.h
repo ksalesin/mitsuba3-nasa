@@ -279,8 +279,8 @@ MuellerMatrix<Float> specular_transmission(Float cos_theta_i, Float eta) {
  *      Normalization factor for phase function
  * 
  */
-template <typename Float>
-MuellerMatrix<Float> mie_scatter(dr::Complex<Float> s1, dr::Complex<Float> s2, Float ns) {
+template <typename Float, typename Complex>
+MuellerMatrix<Float> mie_scatter(Complex s1, Complex s2, Float ns) {
     auto s11 = 0.5f * (dr::squared_norm(s1) + dr::squared_norm(s2));
     auto s12 = 0.5f * (dr::squared_norm(s1) - dr::squared_norm(s2));
     auto s33 = dr::real(s1 * dr::conj(s2));
