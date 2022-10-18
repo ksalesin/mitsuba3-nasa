@@ -202,8 +202,6 @@ class PRBPolarizedIntegrator(RBIntegrator):
 
                 valid_ray |= act_medium_scatter
 
-                # TODO: Insert NEE for active medium scatter event?
-
                 with dr.suspend_grad():
                     wo, phase_val = phase.sample(phase_ctx, mei, sampler.next_1d(act_medium_scatter), sampler.next_2d(act_medium_scatter), act_medium_scatter)
                 phase_val = mei.to_world_mueller(phase_val, -wo, mei.wi)
