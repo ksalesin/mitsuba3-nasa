@@ -17,20 +17,6 @@
 
 NAMESPACE_BEGIN(mitsuba)
 
-/// Supported base AOV types
-/// This is what the Integrator stores in the image block in addition to
-/// any custom AOVs in the child integrator
-enum class BaseAOVType : uint32_t {
-    /// Store colors in RGB form, alpha value, weight value
-    RGBAW = 0,
-
-    /// Store only final radiance intensity value (mimicking a radiance meter)
-    I = 1,
-
-    /// Store Stokes vector in IQUV form (mimicking a polarimeter)
-    IQUV = 2
-};
-
 /**
  * \brief Abstract integrator base class, which does not make any assumptions
  * with regards to how radiance is computed.
@@ -311,9 +297,6 @@ protected:
      * If set to (uint32_t) -1, all the work is done in a single pass (default).
      */
     uint32_t m_samples_per_pass;
-
-    /// Type of base AOVs that should be stored in the image block
-    BaseAOVType m_aov_type;
 };
 
 /** \brief Abstract integrator that performs *recursive* Monte Carlo sampling

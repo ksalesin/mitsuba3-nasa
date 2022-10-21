@@ -80,29 +80,6 @@ MI_VARIANT SamplingIntegrator<Float, Spectrum>::SamplingIntegrator(const Propert
     }
 
     m_samples_per_pass = props.get<uint32_t>("samples_per_pass", (uint32_t) -1);
-
-    if (props.has_property("aov_type")) {
-        std::string aov_type = string::to_lower(props.string("aov_type"));
-        if (aov_type == "rgbaw")
-            m_aov_type = BaseAOVType::RGBAW;
-        else if (aov_type == "radiance")
-            m_aov_type = BaseAOVType::I;
-        else if (aov_type == "iquv")
-            m_aov_type = BaseAOVType::IQUV;
-        else
-            Throw("Specified an invalid AOV type \"%s\", must be "
-                    "\"rgbaw\", \"radiance\", or \"iquv\"!", aov_type.c_str());
-    } else {
-        m_aov_type = BaseAOVType::RGBAW;
-    }
-
-    if (m_aov_type == BaseAOVType::IQUV)
-        if constexpr (!is_polarized_v<Spectrum>)
-            Throw("AOV type \"iquv\" may only be used in polarized mode!");
-
-    if (m_aov_type == BaseAOVType::IQUV || m_aov_type == BaseAOVType::I)
-        if constexpr (is_rgb_v<Spectrum>)
-            Throw("AOV types \"radiance\" or \"iquv\" may only be used in monochromatic or spectral mode!");
 }
 
 MI_VARIANT SamplingIntegrator<Float, Spectrum>::~SamplingIntegrator() { }
@@ -388,32 +365,30 @@ SamplingIntegrator<Float, Spectrum>::render_radiance_meter(Scene *scene,
     uint32_t total_samples = spp_per_pass * n_passes;
     uint32_t total_samples_done = 0;
 
-    std::vector<std::string> channels = aov_names();
+    std::vector<std::string> channels;
+    const size_t n_wav = dr::array_size_v<UnpolarizedSpectrum>;
 
-    // Insert default channels
-    if (m_aov_type == BaseAOVType::I) {
-        if constexpr(is_monochromatic_v<Spectrum>) {
-            channels.insert(channels.begin(), std::string("I"));
-        } else if constexpr (is_spectral_v<Spectrum>) {
-            size_t n_wav = dr::array_size_v<UnpolarizedSpectrum>;
-            for (size_t i = 0; i < n_wav; ++i)
-                channels.insert(channels.begin(), std::string("I." + std::to_string(i)));
-        }
-    } else if (m_aov_type == BaseAOVType::IQUV) {
-        if constexpr(is_monochromatic_v<Spectrum>) {
+    // AOVs are auto-detected based on variant
+    if constexpr(is_monochromatic_v<Spectrum>) {
+        if constexpr(is_polarized_v<Spectrum>) {
             for (size_t i = 0; i < 4; ++i)
                 channels.insert(channels.begin() + i, std::string(1, "IQUV"[i]));
-        } else if constexpr(is_spectral_v<Spectrum>) {
-            size_t n_wav = dr::array_size_v<UnpolarizedSpectrum>;
-            for (size_t i = 0; i < 4; ++i)
+        } else {
+            channels.insert(channels.begin(), std::string("I"));
+        }
+    } else if constexpr (is_spectral_v<Spectrum>) {
+        if constexpr(is_polarized_v<Spectrum>) {
+            const size_t n_spectrum = dr::array_size_v<Spectrum>;
+            for (size_t i = 0; i < 4; ++i) {
                 for (size_t k = 0; k < n_wav; ++k) {
                     size_t j = i * n_wav + k;
-                    channels.insert(channels.begin() + j, std::string(1, "IQUV"[i]) + "." + std::to_string(k));
+                    channels.insert(channels.begin() + j, std::string(1, "IQUV"[i]) + ".λ" + std::to_string(k));
                 }
+            }
+        } else {
+            for (size_t k = 0; k < n_wav; ++k)
+                channels.insert(channels.begin(), std::string("I.λ" + std::to_string(k)));
         }
-    } else if (m_aov_type == BaseAOVType::RGBAW) {
-        for (size_t i = 0; i < 5; ++i)
-            channels.insert(channels.begin() + i, std::string(1, "RGBAW"[i]));
     }
 
     size_t n_channels = channels.size();
@@ -604,209 +579,87 @@ SamplingIntegrator<Float, Spectrum>::render_radiance_meter(Scene *scene,
         Log(Info, "Rendering finished. (took %s)",
             util::time_string((float) m_render_timer.value(), true));
 
-    // Get radiance value and normalize
-    if (m_aov_type == BaseAOVType::I) {
-        if constexpr (is_monochromatic_v<Spectrum>) {
-            double i = 0.;
+    // Accumulate radiance value and normalize
+    auto data = final_block->tensor().array();
 
-            for (size_t x = 0; x < film_size.x(); x++) {
-                for (size_t y = 0; y < film_size.y(); y++) {
-                    const Vector2f pixel(x, y);
-                    std::unique_ptr<Float[]> pixel_aovs(new Float[n_channels]);
+    using DoubleX = dr::DynamicArray<double>;
+    DoubleX result = dr::zeros<DoubleX>(n_channels);
 
-                    final_block->read(pixel, pixel_aovs.get(), true);
+    const size_t n_pixels = film_size.x() * film_size.y();
 
-                    if constexpr(!dr::is_jit_v<Float>) {
-                        i += pixel_aovs[0];
-                    } else {
-                        i += pixel_aovs[0][0];
-                    }
+    if constexpr(dr::is_jit_v<Float>) {
+        // Initialize
+        for (size_t k = 0; k < n_channels; k++)
+            result[k] = 0.f;
+            
+        UInt32 index = dr::arange<UInt32>(n_pixels) * n_channels;
+
+        std::unique_ptr<Float[]> pixel_aovs(new Float[n_channels]);
+
+        // Gather!
+        for (size_t k = 0; k < n_channels; ++k) {
+            pixel_aovs[k] = dr::gather<Float>(data, index);
+
+            // Calling dr::sum() here instead results in compilation error, not sure why
+            for (size_t x = 0; x < n_pixels; x++)
+                result[k] += pixel_aovs[k][x];
+            
+            index++;
+        }
+    } else {
+        // Initialize
+        for (size_t k = 0; k < n_channels; k++)
+            result[k] = 0.f;
+
+        // Accumulate each pixel
+        for (size_t x = 0; x < film_size.x(); x++) {
+            for (size_t y = 0; y < film_size.y(); y++) {
+                UInt32 index = dr::fmadd(y, film_size.x(), x) * n_channels;
+                for (size_t k = 0; k < n_channels; k++) {
+                    result[k] += dr::gather<Float>(data, index);
+                    index++;
                 }
             }
+        }
+    }
 
-            i *= dr::rcp((float) film_size.x() * film_size.y() * total_samples_done);
+    // Normalize by true number of samples
+    ScalarFloat nf = dr::rcp((float) n_pixels * total_samples_done);
+    for (size_t k = 0; k < n_channels; k++)
+        result[k] *= nf;
 
-            return i;
+    if constexpr (is_polarized_v<Spectrum>) {
+        if constexpr(is_monochromatic_v<Spectrum>) {
+            return MuellerMatrix<Float>(
+                result[0], 0, 0, 0,
+                result[1], 0, 0, 0,
+                result[2], 0, 0, 0,
+                result[3], 0, 0, 0
+            );
         } else if constexpr(is_spectral_v<Spectrum>) {
-            const size_t n_wav = dr::array_size_v<UnpolarizedSpectrum>;
-            dr::Array<double, n_wav> i;
+            dr::Array<UnpolarizedSpectrum, 4> stokes;
+
+            for (size_t i = 0; i < 4; i++)
+                for (size_t k = 0; k < n_wav; k++)
+                    stokes[i][k] = result[i * n_wav + k];
+
+            return MuellerMatrix<UnpolarizedSpectrum>(
+                stokes[0], 0, 0, 0,
+                stokes[1], 0, 0, 0,
+                stokes[2], 0, 0, 0,
+                stokes[3], 0, 0, 0
+            );
+        }
+    } else {
+        if constexpr (is_monochromatic_v<Spectrum>) {
+            return result[0];
+        } else if constexpr (is_spectral_v<Spectrum>) {
+            UnpolarizedSpectrum spec_u;
 
             for (size_t k = 0; k < n_wav; k++)
-                i[k] = 0.;
-            
-            for (size_t x = 0; x < film_size.x(); x++) {
-                for (size_t y = 0; y < film_size.y(); y++) {
-                    const Vector2f pixel(x, y);
-                    std::unique_ptr<Float[]> pixel_aovs(new Float[n_channels]);
+                    spec_u[k] = result[k];
 
-                    final_block->read(pixel, pixel_aovs.get(), true);
-
-                    for (size_t k = 0; k < n_wav; ++k) {
-                        if constexpr(!dr::is_jit_v<Float>) {
-                            i[k] += pixel_aovs[k];
-                        } else {
-                            i[k] += pixel_aovs[k][0];
-                        }
-                    }
-                }
-            }
-
-            i *= dr::rcp((float) film_size.x() * film_size.y() * total_samples_done);
-            
-            return i;
-        }
-
-    } else if (m_aov_type == BaseAOVType::IQUV) {
-        // Total polarized radiance / Stokes vector
-        if constexpr (is_monochromatic_v<Spectrum>) {
-            double i = 0.,
-                   q = 0.,
-                   u = 0.,
-                   v = 0.;
-
-            if constexpr (dr::is_jit_v<Float>) {
-                size_t film_size_sq = (size_t) film_size.x() *
-                                      (size_t) film_size.y();
-
-                UInt32 idx = dr::arange<UInt32>((uint32_t) film_size_sq);
-
-                // Compute the position on the image plane
-                Vector2u pixels;
-                pixels.y() = idx / film_size[0];
-                pixels.x() = dr::fnmadd(film_size[0], pixels.y(), idx);
-
-                std::unique_ptr<Float[]> pixel_aovs(new Float[n_channels]);
-
-                final_block->read(pixels, pixel_aovs.get(), true);
-
-                for (size_t x = 0; x < film_size_sq; x++) {
-                    i += pixel_aovs[0][x];
-                    q += pixel_aovs[1][x];
-                    u += pixel_aovs[2][x];
-                    v += pixel_aovs[3][x];
-                }
-
-                i *= dr::rcp((float) film_size_sq * total_samples_done);
-                q *= dr::rcp((float) film_size_sq * total_samples_done);
-                u *= dr::rcp((float) film_size_sq * total_samples_done);
-                v *= dr::rcp((float) film_size_sq * total_samples_done);
-
-                if constexpr(is_polarized_v<Spectrum>) {
-                    return MuellerMatrix<Float>(
-                                i, 0, 0, 0,
-                                q, 0, 0, 0,
-                                u, 0, 0, 0,
-                                v, 0, 0, 0
-                            );
-                }
-            } else {
-                for (size_t x = 0; x < film_size.x(); x++) {
-                    for (size_t y = 0; y < film_size.y(); y++) {
-                        const Vector2f pixel(x, y);
-                        std::unique_ptr<Float[]> pixel_aovs(new Float[n_channels]);
-
-                        final_block->read(pixel, pixel_aovs.get(), true);
-
-                        i += pixel_aovs[0];
-                        q += pixel_aovs[1];
-                        u += pixel_aovs[2];
-                        v += pixel_aovs[3];
-                    }
-                }
-
-                i *= dr::rcp((float) film_size.x() * film_size.y() * total_samples_done);
-                q *= dr::rcp((float) film_size.x() * film_size.y() * total_samples_done);
-                u *= dr::rcp((float) film_size.x() * film_size.y() * total_samples_done);
-                v *= dr::rcp((float) film_size.x() * film_size.y() * total_samples_done);
-
-                if constexpr(is_polarized_v<Spectrum>) {
-                    return MuellerMatrix<Float>(
-                                i, 0, 0, 0,
-                                q, 0, 0, 0,
-                                u, 0, 0, 0,
-                                v, 0, 0, 0
-                            );
-                }
-            }
-        } else if constexpr(is_spectral_v<Spectrum>) {
-            const size_t n_wav = dr::array_size_v<UnpolarizedSpectrum>;
-            dr::Array<double, n_wav> i, q, u, v;
-
-            for (size_t k = 0; k < n_wav; k++) {
-                i[k] = 0.;
-                q[k] = 0.;
-                u[k] = 0.;
-                v[k] = 0.;
-            }
-
-            if constexpr(dr::is_jit_v<Float>) {
-                size_t film_size_sq = (size_t) film_size.x() *
-                                      (size_t) film_size.y();
-
-                UInt32 idx = dr::arange<UInt32>((uint32_t) film_size_sq);
-
-                // Compute the position on the image plane
-                Vector2u pixels;
-                pixels.y() = idx / film_size[0];
-                pixels.x() = dr::fnmadd(film_size[0], pixels.y(), idx);
-
-                std::unique_ptr<Float[]> pixel_aovs(new Float[n_channels]);
-
-                final_block->read(pixels, pixel_aovs.get(), true);
-
-                for (size_t k = 0; k < n_wav; k++) {
-                    for (size_t x = 0; x < film_size_sq; x++) {
-                        i[k] += pixel_aovs[0 * n_wav + k][x];
-                        q[k] += pixel_aovs[1 * n_wav + k][x];
-                        u[k] += pixel_aovs[2 * n_wav + k][x];
-                        v[k] += pixel_aovs[3 * n_wav + k][x];
-                    }
-                }
-
-                i *= dr::rcp((float) film_size_sq * total_samples_done);
-                q *= dr::rcp((float) film_size_sq * total_samples_done);
-                u *= dr::rcp((float) film_size_sq * total_samples_done);
-                v *= dr::rcp((float) film_size_sq * total_samples_done);
-
-                if constexpr(is_polarized_v<Spectrum>) {
-                    return MuellerMatrix<UnpolarizedSpectrum>(
-                                i, 0, 0, 0,
-                                q, 0, 0, 0,
-                                u, 0, 0, 0,
-                                v, 0, 0, 0
-                            );
-                }
-            } else {
-                for (size_t x = 0; x < film_size.x(); x++) {
-                    for (size_t y = 0; y < film_size.y(); y++) {
-                        const Vector2f pixel(x, y);
-                        std::unique_ptr<Float[]> pixel_aovs(new Float[n_channels]);
-
-                        final_block->read(pixel, pixel_aovs.get(), true);
-
-                        for (size_t k = 0; k < n_wav; k++) {
-                            i[k] += pixel_aovs[0 * n_wav + k];
-                            q[k] += pixel_aovs[1 * n_wav + k];
-                            u[k] += pixel_aovs[2 * n_wav + k];
-                            v[k] += pixel_aovs[3 * n_wav + k];
-                        }
-                    }
-                }
-
-                i *= dr::rcp((float) film_size.x() * film_size.y() * total_samples_done);
-                q *= dr::rcp((float) film_size.x() * film_size.y() * total_samples_done);
-                u *= dr::rcp((float) film_size.x() * film_size.y() * total_samples_done);
-                v *= dr::rcp((float) film_size.x() * film_size.y() * total_samples_done);
-
-                if constexpr(is_polarized_v<Spectrum>) {
-                    return MuellerMatrix<UnpolarizedSpectrum>(
-                                i, 0, 0, 0,
-                                q, 0, 0, 0,
-                                u, 0, 0, 0,
-                                v, 0, 0, 0
-                            );
-                }
-            }
+            return spec_u;
         }
     }
 
@@ -915,29 +768,27 @@ SamplingIntegrator<Float, Spectrum>::render_sample(const Scene *scene,
         spec = to_sensor_mueller(sensor, ray, spec);
     }
 
-    if (m_aov_type == BaseAOVType::I) {
-        if constexpr (is_monochromatic_v<Spectrum>) {
+    // AOVs are auto-detected based on variant
+    if constexpr(is_monochromatic_v<Spectrum>) {
+        if constexpr(is_polarized_v<Spectrum>) {
+            auto const &stokes = spec.entry(0);
+            for (int i = 0; i < 4; ++i)
+                aovs[i] = stokes[i].x();
+        } else {
             aovs[0] = spec_u.x();
-        } else if constexpr (is_spectral_v<Spectrum>) {
-            for (size_t k = 0; k < dr::array_size_v<UnpolarizedSpectrum>; ++k)
+        }
+    } else if constexpr (is_spectral_v<Spectrum>) {
+        const size_t n_wav = dr::array_size_v<UnpolarizedSpectrum>;
+        if constexpr(is_polarized_v<Spectrum>) {
+            auto const &stokes = spec.entry(0);
+            for (int i = 0; i < 4; ++i) 
+                for (size_t k = 0; k < n_wav; ++k)
+                    aovs[i * n_wav + k] = stokes[i][k];
+        } else {
+            for (size_t k = 0; k < n_wav; ++k)
                 aovs[k] = spec_u[k];
         }
-    } else if (m_aov_type == BaseAOVType::IQUV) {
-        if constexpr (is_polarized_v<Spectrum>) {
-            auto const &stokes = spec.entry(0);
-
-            if constexpr (is_monochromatic_v<Spectrum>) {
-                for (int i = 0; i < 4; ++i)
-                    aovs[i] = stokes[i].x();
-            } else if constexpr (is_spectral_v<Spectrum>) {
-                size_t n_wav = dr::array_size_v<UnpolarizedSpectrum>;
-                for (int i = 0; i < 4; ++i) 
-                    for (size_t k = 0; k < n_wav; ++k) {
-                        aovs[i * n_wav + k] = stokes[i][k];
-                    }
-            }
-        }
-    } else if (m_aov_type == BaseAOVType::RGBAW) {
+    } else if constexpr (is_rgb_v<Spectrum>) {
         if (unlikely(has_flag(film->flags(), FilmFlags::Special))) {
             film->prepare_sample(spec_u, ray.wavelengths, aovs,
                                 /*weight*/ 1.f,
