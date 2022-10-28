@@ -338,8 +338,9 @@ public:
                      T = mueller::specular_transmission(UnpolarizedSpectrum(cos_theta_o_hat), UnpolarizedSpectrum(m_eta));
 
             if (likely(has_reflection && has_transmission)) {
-                weight[selected_r] = R / F;
-                weight[selected_t] = T / (1.f - F);
+                weight = dr::select(selected_r,
+                                    R / F,
+                                    T / (1.f - F));
             } else if (has_reflection || has_transmission) {
                 weight = has_reflection ? R : T;
             }
@@ -356,7 +357,7 @@ public:
                                                     wi_hat, s_axis_out, mueller::stokes_basis(wi_hat));
 
             // If the cross product s_axis_in or s_axis_out is too small, weight may be NaN
-            dr::masked(weight, dr::isnan(weight)) = depolarizer<Spectrum>(0.f);
+            dr::masked(weight, dr::isnan(weight)) = 0.f;
         } else {
             if (likely(has_reflection && has_transmission)) {
                 weight = 1.f;
@@ -481,7 +482,7 @@ public:
                                                     wi_hat, s_axis_out, mueller::stokes_basis(wi_hat));
 
             // If the cross product s_axis_in or s_axis_out is too small, weight may be NaN
-            dr::masked(weight, dr::isnan(weight)) = depolarizer<Spectrum>(0.f);
+            dr::masked(weight, dr::isnan(weight)) = 0.f;
         } else {
             if (dr::any_or<true>(eval_r)) {
                 weight[eval_r] = F;

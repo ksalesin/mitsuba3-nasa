@@ -83,7 +83,7 @@ public:
         UInt32 depth = 0;
 
         UInt32 channel = 0;
-        if (is_rgb_v<Spectrum>) {
+        if constexpr (is_rgb_v<Spectrum>) {
             uint32_t n_channels = (uint32_t) dr::array_size_v<Spectrum>;
             channel = (UInt32) dr::minimum(sampler->next_1d(active) * n_channels, n_channels - 1);
         }
@@ -183,6 +183,7 @@ public:
 
                 PhaseFunctionContext phase_ctx(sampler);
                 auto phase = mei.medium->phase_function();
+                dr::masked(phase, !act_medium_scatter) = nullptr;
 
                 // --------------------- Emitter sampling ---------------------
                 Mask sample_emitters = mei.medium->use_emitter_sampling();
@@ -201,16 +202,15 @@ public:
                 }
 
                 // ------------------ Phase function sampling -----------------
-                dr::masked(phase, !act_medium_scatter) = nullptr;
                 auto [wo, phase_val] = phase->sample(phase_ctx, mei,
                     sampler->next_1d(act_medium_scatter),
                     sampler->next_2d(act_medium_scatter),
                     act_medium_scatter);
                 phase_val = mei.to_world_mueller(phase_val, -wo, mei.wi);
                 Float phase_pdf = phase->pdf(phase_ctx, mei, wo, act_medium_scatter);
+                act_medium_scatter &= phase_pdf > 0.f;
                 dr::masked(throughput, act_medium_scatter) *= phase_val;
 
-                act_medium_scatter &= phase_pdf > 0.f;
                 Ray3f new_ray  = mei.spawn_ray(mei.to_world(wo));
                 dr::masked(ray, act_medium_scatter) = new_ray;
                 needs_intersection |= act_medium_scatter;
@@ -237,11 +237,11 @@ public:
 
                     // Only evaluate if this is a surface reflection
                     if (dr::any_or<true>(reflect_e)) {
-                        auto [emitted, ds] = sample_emitter(si, scene, sampler, medium, channel, refractive_bsdf, active_e);
+                        auto [emitted, ds] = sample_emitter(si, scene, sampler, medium, channel, refractive_bsdf, reflect_e);
                         
                         // Query the BSDF for that emitter-sampled direction
                         Vector3f wo       = si.to_local(ds.d);
-                        Spectrum bsdf_val = bsdf->eval(ctx, si, wo, active_e);
+                        Spectrum bsdf_val = bsdf->eval(ctx, si, wo, reflect_e);
                         bsdf_val = si.to_world_mueller(bsdf_val, -wo, si.wi);
 
                         result[reflect_e] += throughput * bsdf_val * emitted;
@@ -318,7 +318,7 @@ public:
 
             auto [bs, bsdf_val] = refractive_bsdf->sample(ctx, si, sampler->next_1d(has_refractive_bsdf),
                                                         sampler->next_2d(has_refractive_bsdf), has_refractive_bsdf);
-            Mask valid_sample = bs.pdf > 0.f;
+            Mask valid_sample = bs.pdf > dr::Epsilon<Float>;
 
             // Assumes surface normal is (0, 0, 1) in world space
             DirectionSample3f ds_tmp(ds);
