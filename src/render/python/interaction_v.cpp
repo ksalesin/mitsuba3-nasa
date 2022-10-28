@@ -115,6 +115,10 @@ MI_PY_EXPORT(MediumInteraction) {
         .def(py::init<const MediumInteraction3f &>(), "Copy constructor")
         .def("to_world", &MediumInteraction3f::to_world, "v"_a, D(MediumInteraction, to_world))
         .def("to_local", &MediumInteraction3f::to_local, "v"_a, D(MediumInteraction, to_local))
+        .def("to_world_mueller", &MediumInteraction3f::to_world_mueller, "M_local"_a,
+            "wi_local"_a, "wo_local"_a)
+        .def("to_local_mueller", &MediumInteraction3f::to_local_mueller, "M_world"_a,
+            "wi_world"_a, "wo_world"_a)
         .def_repr(MediumInteraction3f);
 
     MI_PY_DRJIT_STRUCT(mi, MediumInteraction3f, t, time, wavelengths, p, n,

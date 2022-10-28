@@ -42,7 +42,7 @@ Integrator<Float, Spectrum>::render(Scene *scene,
 }
 
 MI_VARIANT Spectrum
-Integrator<Float, Spectrum>::render_radiance_meter(Scene *scene,
+Integrator<Float, Spectrum>::render_1(Scene *scene,
                                                    uint32_t sensor_index,
                                                    uint32_t seed,
                                                    uint32_t spp,
@@ -50,9 +50,9 @@ Integrator<Float, Spectrum>::render_radiance_meter(Scene *scene,
                                                    bool evaluate,
                                                    size_t thread_count) {
     if (sensor_index >= scene->sensors().size())
-        Throw("Scene::render_radiance_meter(): sensor index %i is out of bounds!", sensor_index);
+        Throw("Scene::render_1(): sensor index %i is out of bounds!", sensor_index);
 
-    return render_radiance_meter(scene, scene->sensors()[sensor_index].get(),
+    return render_1(scene, scene->sensors()[sensor_index].get(),
                   seed, spp, develop, evaluate, thread_count);
 }
 
@@ -324,13 +324,13 @@ SamplingIntegrator<Float, Spectrum>::render(Scene *scene,
 }
 
 MI_VARIANT Spectrum 
-SamplingIntegrator<Float, Spectrum>::render_radiance_meter(Scene *scene,
-                                            Sensor *sensor,
-                                            uint32_t seed,
-                                            uint32_t spp,
-                                            bool /* develop */,
-                                            bool evaluate,
-                                            size_t thread_count) {
+SamplingIntegrator<Float, Spectrum>::render_1(Scene *scene,
+                                              Sensor *sensor,
+                                              uint32_t seed,
+                                              uint32_t spp,
+                                              bool /* develop */,
+                                              bool evaluate,
+                                              size_t thread_count) {
     ScopedPhase sp(ProfilerPhase::Render);
     m_stop = false;
 
@@ -588,10 +588,6 @@ SamplingIntegrator<Float, Spectrum>::render_radiance_meter(Scene *scene,
     const size_t n_pixels = film_size.x() * film_size.y();
 
     if constexpr(dr::is_jit_v<Float>) {
-        // Initialize
-        for (size_t k = 0; k < n_channels; k++)
-            result[k] = 0.f;
-            
         UInt32 index = dr::arange<UInt32>(n_pixels) * n_channels;
 
         std::unique_ptr<Float[]> pixel_aovs(new Float[n_channels]);

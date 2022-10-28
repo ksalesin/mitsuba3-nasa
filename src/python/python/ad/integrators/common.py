@@ -116,6 +116,125 @@ class ADIntegrator(mi.CppADIntegrator):
 
             return self.primal_image
 
+    def render_1(self: mi.SamplingIntegrator,
+                 scene: mi.Scene,
+                 sensor: Union[int, mi.Sensor] = 0,
+                 seed: int = 0,
+                 spp: int = 0,
+                 develop: bool = True,
+                 evaluate: bool = True,
+                 thread_count: int = 0) -> mi.Spectrum:
+        """ Analogous to above render(), but accumulates all pixels 
+           and returns a single Spectrum value. """
+
+        if thread_count != 0:
+            mi.set_thread_count(thread_count)
+
+        if isinstance(sensor, int):
+            sensor = scene.sensors()[sensor]
+
+        # Disable derivatives in all of the following
+        with dr.suspend_grad():
+            # Prepare the film and sample generator for rendering
+            sampler, spp = self.prepare(
+                sensor=sensor,
+                seed=seed,
+                spp=spp,
+                aovs=self.aovs()
+            )
+
+            # Generate a set of rays starting at the sensor
+            ray, weight, pos, _ = self.sample_rays(scene, sensor, sampler)
+
+            # Launch the Monte Carlo sampling process in primal mode
+            L, valid, state = self.sample(
+                mode=dr.ADMode.Primal,
+                scene=scene,
+                sampler=sampler,
+                ray=ray,
+                depth=mi.UInt32(0),
+                δL=None,
+                state_in=None,
+                reparam=None,
+                active=mi.Bool(True)
+            )
+
+            # print(f'L -> ({type(L)}, shape: {dr.shape(L)}) {L}')
+
+            film = sensor.film()
+            film_size = film.crop_size()
+            n_wavelengths = len(ray.wavelengths)
+
+            # Rotate Stokes reference frames if polarized
+            if mi.is_polarized:
+                L = self.to_sensor_mueller(sensor, ray, L)
+
+            # Accumulate final spectrum
+            self.primal_spectrum = mi.Spectrum(0.0)
+
+            # print(f'self.primal_spectrum -> ({type(self.primal_spectrum)}, \
+            #         shape: {dr.shape(self.primal_spectrum)}) {self.primal_spectrum}')
+
+            if mi.is_monochromatic:
+                if mi.is_polarized:
+                    for i in range(4):
+                        self.primal_spectrum[0][i][0] = dr.sum(L[0][i][0])
+                else:
+                    self.primal_spectrum[0] = dr.sum(L[0])
+            elif mi.is_spectral:
+                if mi.is_polarized:
+                    for i in range(4):
+                        for k in range(n_wavelengths):
+                            self.primal_spectrum[0][i][0][k] = dr.sum(L[0][i][0][k]) # TODO: test
+                else:
+                    for k in range(n_wavelengths):
+                        self.primal_spectrum[k] = dr.sum(L[k])
+            else:
+                # Never use render_1() in RGB mode
+                pass
+
+            # Normalize
+            nf = dr.rcp(film_size.x * film_size.y * spp)
+
+            if mi.is_polarized:
+                self.primal_spectrum = self.primal_spectrum @ nf # why does this work without mi.Spectrum(nf) cast?
+            else:
+                self.primal_spectrum *= nf
+
+            # print(f'self.primal_spectrum -> ({type(self.primal_spectrum)}, \
+            #         shape: {dr.shape(self.primal_spectrum)}) {self.primal_spectrum}')
+
+            # Explicitly delete any remaining unused variables
+            del sampler, ray, weight, pos, L, valid
+            gc.collect()
+
+            return self.primal_spectrum
+
+    def to_sensor_mueller(self: mi.SamplingIntegrator, 
+                          sensor: mi.Sensor, 
+                          ray: mi.Ray3f, 
+                          spec: mi.Spectrum) -> mi.Spectrum:
+        """ The Stokes vector that comes from the integrator is still aligned
+            with the implicit Stokes frame used for the ray direction. Apply
+            one last rotation here s.t. it aligns with the sensor's x-axis. """
+        current_basis = mi.mueller.stokes_basis(-ray.d)
+        vertical = mi.Vector3f(0.0, 0.0, 1.0)
+        tmp = dr.cross(-ray.d, vertical)
+
+        # Ray is pointing straight along vertical
+        ray_is_vertical = dr.norm(tmp) < mi.Float(1e-12)
+
+        target_basis = mi.Vector3f(0.0, 0.0, 0.0)
+        target_basis[ ray_is_vertical] = mi.Vector3f(1.0, 0.0, 0.0)
+        target_basis[~ray_is_vertical] = dr.cross(-ray.d, dr.normalize(tmp))
+
+        spec2sensor = mi.mueller.rotate_stokes_basis(-ray.d,
+                                                      current_basis,
+                                                      target_basis)
+
+        return mi.Spectrum(spec2sensor) @ spec
+
+
     def render_forward(self: mi.SamplingIntegrator,
                        scene: mi.Scene,
                        params: Any,
@@ -959,6 +1078,144 @@ class RBIntegrator(ADIntegrator):
             # We don't need any of the outputs here
             del L_2, valid_2, state_out, state_out_2, δL, \
                 ray, weight, pos, block, sampler
+
+            gc.collect()
+
+            # Run kernel representing side effects of the above
+            dr.eval()
+
+    def render_1_backward(self: mi.SamplingIntegrator,
+                          scene: mi.Scene,
+                          params: Any,
+                          grad_in: mi.TensorXf,
+                          sensor: Union[int, mi.Sensor] = 0,
+                          seed: int = 0,
+                          spp: int = 0) -> None:
+        """ Analogous to above render_backward() but for render_1() """
+
+        if isinstance(sensor, int):
+            sensor = scene.sensors()[sensor]
+
+        film = sensor.film()
+        aovs = self.aovs()
+
+        # Disable derivatives in all of the following
+        with dr.suspend_grad():
+            # Prepare the film and sample generator for rendering
+            sampler, spp = self.prepare(sensor, seed, spp, aovs)
+
+            # When the underlying integrator supports reparameterizations,
+            # perform necessary initialization steps and wrap the result using
+            # the _ReparamWrapper abstraction defined above
+            if hasattr(self, 'reparam'):
+                reparam = _ReparamWrapper(
+                    scene=scene,
+                    params=params,
+                    reparam=self.reparam,
+                    wavefront_size=sampler.wavefront_size(),
+                    seed=seed
+                )
+            else:
+                reparam = None
+
+            # Generate a set of rays starting at the sensor, keep track of
+            # derivatives wrt. sample positions ('pos') if there are any
+            ray, weight, pos, det = self.sample_rays(scene, sensor,
+                                                     sampler, reparam)
+
+            # Launch the Monte Carlo sampling process in primal mode (1)
+            L, valid, state_out = self.sample(
+                mode=dr.ADMode.Primal,
+                scene=scene,
+                sampler=sampler.clone(),
+                ray=ray,
+                depth=mi.UInt32(0),
+                δL=None,
+                state_in=None,
+                reparam=None,
+                active=mi.Bool(True)
+            )
+
+            film_size = film.crop_size()
+            n_wavelengths = len(ray.wavelengths)
+
+            # Rotate Stokes reference frames if polarized
+            if mi.is_polarized:
+                L = self.to_sensor_mueller(sensor, ray, L)
+
+            # Accumulate and normalize final spectrum
+            spectrum = mi.Spectrum(0.0)
+
+            with dr.resume_grad():
+                dr.enable_grad(L)
+
+                # Accumulate into the image block.
+                # After reparameterizing the camera ray, we need to evaluate
+                #   Σ (fi Li det)
+                #  ---------------
+                #   Σ (fi det)
+                # L *= weight * det # <-- this results in backward_from() exception
+
+                if mi.is_monochromatic:
+                    if mi.is_polarized:
+                        for i in range(4):
+                            spectrum[0][i][0] = dr.sum(L[0][i][0])
+                    else:
+                        spectrum[0] = dr.sum(L[0])
+                elif mi.is_spectral:
+                    if mi.is_polarized:
+                        for i in range(4):
+                            for k in range(n_wavelengths):
+                                spectrum[0][i][0][k] = dr.sum(L[0][i][0][k]) # TODO: test
+                    else:
+                        for k in range(n_wavelengths):
+                            spectrum[k] = dr.sum(L[k])
+                else:
+                    # Never use render_1() in RGB mode
+                    pass
+
+                # Normalize
+                nf = dr.rcp(film_size.x * film_size.y * spp)
+
+                if mi.is_polarized:
+                    spectrum = spectrum @ nf
+                else:
+                    spectrum *= nf
+
+                # Probably a little overkill, but why not.. If there are any
+                # DrJit arrays to be collected by Python's cyclic GC, then
+                # freeing them may enable loop simplifications in dr.eval().
+                del valid
+                gc.collect()
+
+                # This step launches a kernel
+                dr.schedule(state_out, spectrum)
+
+                # Differentiate sample splatting and weight division steps to
+                # retrieve the adjoint radiance
+                dr.set_grad(spectrum, grad_in)
+                dr.enqueue(dr.ADMode.Backward, spectrum)
+                dr.traverse(mi.Float, dr.ADMode.Backward)
+                δL = dr.grad(L)
+
+                # print(f'δL -> ({type(δL)}, shape: {dr.shape(δL)}) {δL}')
+
+            # Launch Monte Carlo sampling in backward AD mode (2)
+            L_2, valid_2, state_out_2 = self.sample(
+                mode=dr.ADMode.Backward,
+                scene=scene,
+                sampler=sampler,
+                ray=ray,
+                depth=mi.UInt32(0),
+                δL=δL,
+                state_in=state_out,
+                reparam=reparam,
+                active=mi.Bool(True)
+            )
+
+            # We don't need any of the outputs here
+            del L_2, valid_2, state_out, state_out_2, δL, \
+                ray, weight, pos, sampler
 
             gc.collect()
 

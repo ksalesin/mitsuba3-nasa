@@ -59,6 +59,11 @@ template <typename Ptr, typename Cls> void bind_phase_generic(Cls &cls) {
                Mask active) { return ptr->eval(ctx, mi, wo, active); },
             "ctx"_a, "mi"_a, "wo"_a, "active"_a = true,
             D(PhaseFunction, eval))
+       .def("pdf",
+            [](Ptr ptr, const PhaseFunctionContext &ctx,
+               const MediumInteraction3f &mi, const Vector3f &wo,
+               Mask active) { return ptr->pdf(ctx, mi, wo, active); },
+            "ctx"_a, "mi"_a, "wo"_a, "active"_a = true)
        .def("projected_area",
             [](Ptr ptr, const MediumInteraction3f &mi,
                Mask active) { return ptr->projected_area(mi, active); },

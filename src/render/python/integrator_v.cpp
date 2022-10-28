@@ -78,6 +78,23 @@ public:
         }
     }
 
+    Spectrum render_1(Scene *scene,
+                      Sensor *sensor,
+                      uint32_t seed,
+                      uint32_t spp,
+                      bool develop,
+                      bool evaluate,
+                      size_t thread_count) override {
+        py::gil_scoped_acquire gil;
+        py::function render_override = py::get_override(this, "render_1");
+
+        if (render_override) {
+            return render_override(scene, sensor, seed, spp, develop, evaluate, thread_count).template cast<Spectrum>();
+        } else {
+            return SamplingIntegrator::render_1(scene, sensor, seed, spp, develop, evaluate, thread_count);
+        }
+    }
+
     std::pair<Spectrum, Mask> sample(const Scene *scene,
                                      Sampler *sampler,
                                      const RayDifferential3f &ray,
@@ -157,6 +174,23 @@ public:
         }
     }
 
+    Spectrum render_1(Scene *scene,
+                      Sensor *sensor,
+                      uint32_t seed,
+                      uint32_t spp,
+                      bool develop,
+                      bool evaluate,
+                      size_t thread_count) override {
+        py::gil_scoped_acquire gil;
+        py::function render_override = py::get_override(this, "render_1");
+
+        if (render_override) {
+            return render_override(scene, sensor, seed, spp, develop, evaluate, thread_count).template cast<Spectrum>();
+        } else {
+            return Base::render_1(scene, sensor, seed, spp, develop, evaluate, thread_count);
+        }
+    }
+
     std::pair<Spectrum, Mask> sample(const Scene *scene,
                                      Sampler *sampler,
                                      const RayDifferential3f &ray,
@@ -230,21 +264,21 @@ MI_PY_EXPORT(Integrator) {
             D(Integrator, render, 2), "scene"_a, "sensor"_a = 0,
             "seed"_a = 0, "spp"_a = 0, "develop"_a = true, "evaluate"_a = true)
         .def(
-            "render_radiance_meter",
+            "render_1",
             [&](Integrator *integrator, Scene *scene, Sensor *sensor,
                 uint32_t seed, uint32_t spp, bool develop, bool evaluate, size_t thread_count) {
                 py::gil_scoped_release release;
                 ScopedSignalHandler sh(integrator);
-                return integrator->render_radiance_meter(scene, sensor, seed, spp, develop,
+                return integrator->render_1(scene, sensor, seed, spp, develop,
                                           evaluate, thread_count);
             })
         .def(
-            "render_radiance_meter",
+            "render_1",
             [&](Integrator *integrator, Scene *scene, uint32_t sensor_index,
                 uint32_t seed, uint32_t spp, bool develop, bool evaluate, size_t thread_count) {
                 py::gil_scoped_release release;
                 ScopedSignalHandler sh(integrator);
-                return integrator->render_radiance_meter(scene, sensor_index, seed, spp,
+                return integrator->render_1(scene, sensor_index, seed, spp,
                                           develop, evaluate, thread_count);
             })
         .def_method(Integrator, cancel)
