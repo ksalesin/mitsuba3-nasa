@@ -334,18 +334,11 @@ SamplingIntegrator<Float, Spectrum>::render_radiance_meter(Scene *scene,
     ScopedPhase sp(ProfilerPhase::Render);
     m_stop = false;
 
-    if (thread_count > 0) {
-        Thread::set_thread_count(thread_count);
-    }
-
     if constexpr (is_rgb_v<Spectrum>)
         Throw("This render loop only supports monochromatic and spectral modes!");
 
     ref<Film> film = sensor->film();
     ScalarVector2u film_size = film->crop_size();
-
-    // if (film_size != ScalarPoint2i(1, 1))
-    //     Throw("This render loop only supports films of size 1x1 Pixels!");
 
     // Potentially adjust the number of samples per pixel if spp != 0
     Sampler *sampler = sensor->sampler();
@@ -364,6 +357,12 @@ SamplingIntegrator<Float, Spectrum>::render_radiance_meter(Scene *scene,
     uint32_t n_passes = spp / spp_per_pass;
     uint32_t total_samples = spp_per_pass * n_passes;
     uint32_t total_samples_done = 0;
+
+    uint32_t n_threads = (uint32_t) (thread_count > 0) ? thread_count : Thread::thread_count();
+    if (n_threads > total_samples)
+        n_threads = total_samples;
+
+    Thread::set_thread_count(n_threads);
 
     std::vector<std::string> channels;
     const size_t n_wav = dr::array_size_v<UnpolarizedSpectrum>;
@@ -411,8 +410,6 @@ SamplingIntegrator<Float, Spectrum>::render_radiance_meter(Scene *scene,
     m_render_timer.reset();
 
     if constexpr (!dr::is_jit_v<Float>) {
-        uint32_t n_threads = (uint32_t) Thread::thread_count();
-
         Log(Info, "Starting render job (%ux%u, %u sample%s,%s %u thread%s)",
             film_size.x(), film_size.y(), spp, spp == 1 ? "" : "s",
             n_passes > 1 ? tfm::format(" %u passes,", n_passes) : "", n_threads,
@@ -424,11 +421,14 @@ SamplingIntegrator<Float, Spectrum>::render_radiance_meter(Scene *scene,
         // Assumes film size is square
         uint32_t block_size = film_size.x();
 
+        // Set block counter to zero
+        m_block_count = 0;
+
         ref<ProgressReporter> progress = new ProgressReporter("Rendering");
         std::mutex mutex;
 
         // Grain size for parallelization
-        uint32_t grain_size = std::max(total_samples / (4 * n_threads), 1u);
+        uint32_t grain_size = std::max(total_samples / n_threads, 1u);
 
         // Avoid overlaps in RNG seeding RNG when a seed is manually specified
         seed *= dr::prod(film_size);
@@ -456,9 +456,16 @@ SamplingIntegrator<Float, Spectrum>::render_radiance_meter(Scene *scene,
                 std::unique_ptr<Float[]> aovs(new Float[n_channels]);
 
                 uint32_t range_size = range.end() - range.begin();
+                uint32_t block_id;
+
+                /* Critical section: assign unique block id */ {
+                    std::lock_guard<std::mutex> lock(mutex);
+                    block_id = m_block_count;
+                    m_block_count++;
+                }
 
                 render_block(scene, sensor, sampler, block, aovs.get(),
-                             range_size, seed, 0u, block_size);
+                             range_size, seed, block_id, block_size);
 
                 /* Critical section: update image and progress bar */ {
                     std::lock_guard<std::mutex> lock(mutex);
@@ -588,10 +595,6 @@ SamplingIntegrator<Float, Spectrum>::render_radiance_meter(Scene *scene,
     const size_t n_pixels = film_size.x() * film_size.y();
 
     if constexpr(dr::is_jit_v<Float>) {
-        // Initialize
-        for (size_t k = 0; k < n_channels; k++)
-            result[k] = 0.f;
-            
         UInt32 index = dr::arange<UInt32>(n_pixels) * n_channels;
 
         std::unique_ptr<Float[]> pixel_aovs(new Float[n_channels]);
@@ -616,12 +619,18 @@ SamplingIntegrator<Float, Spectrum>::render_radiance_meter(Scene *scene,
             for (size_t y = 0; y < film_size.y(); y++) {
                 UInt32 index = dr::fmadd(y, film_size.x(), x) * n_channels;
                 for (size_t k = 0; k < n_channels; k++) {
+                    // auto tmp = dr::gather<Float>(data, index);
+                    // Log(Warn, "tmp (%s,%s,%s): %s", x, y, k, tmp);
                     result[k] += dr::gather<Float>(data, index);
                     index++;
                 }
             }
         }
     }
+
+    // Log(Warn, "spp_per_pass: %s", spp_per_pass);
+    // Log(Warn, "total_samples_done: %s", total_samples_done);
+    // Log(Warn, "n_pixels: %s", n_pixels);
 
     // Normalize by true number of samples
     ScalarFloat nf = dr::rcp((float) n_pixels * total_samples_done);

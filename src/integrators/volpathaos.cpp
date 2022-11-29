@@ -263,13 +263,14 @@ public:
 
                 // Refraction occurred, intentionally or not
                 // Assumes surface is aligned with x-y plane in world space
-                Float cos_theta_old = Frame3f::cos_theta(ray.d);
-                Float cos_theta_new = Frame3f::cos_theta(bsdf_ray.d);
+                // Float cos_theta_old = Frame3f::cos_theta(ray.d);
+                // Float cos_theta_new = Frame3f::cos_theta(bsdf_ray.d);
 
-                Mask refracted = non_null_bsdf && (cos_theta_old * cos_theta_new > 0);
+                // Mask refracted = non_null_bsdf && (cos_theta_old * cos_theta_new > 0);
 
-                // Mask refracted = has_flag(bs.sampled_type, BSDFFlags::DeltaTransmission) || 
-                //                  has_flag(bs.sampled_type, BSDFFlags::GlossyTransmission);
+                Mask refracted = active_surface && 
+                                (has_flag(bs.sampled_type, BSDFFlags::DeltaTransmission) || 
+                                 has_flag(bs.sampled_type, BSDFFlags::GlossyTransmission));
 
                 dr::masked(ray, active_surface) = bsdf_ray;
                 needs_intersection |= active_surface;
@@ -318,7 +319,7 @@ public:
 
             auto [bs, bsdf_val] = refractive_bsdf->sample(ctx, si, sampler->next_1d(has_refractive_bsdf),
                                                         sampler->next_2d(has_refractive_bsdf), has_refractive_bsdf);
-            Mask valid_sample = bs.pdf > dr::Epsilon<Float>;
+            Mask valid_sample = bs.pdf > 1e-12f;
 
             // Assumes surface normal is (0, 0, 1) in world space
             DirectionSample3f ds_tmp(ds);
