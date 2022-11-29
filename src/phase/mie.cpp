@@ -59,6 +59,7 @@ public:
     MI_IMPORT_TYPES(PhaseFunctionContext)
 
     using Complex2f = dr::Complex<ScalarFloat>;
+    using Warp2D1 = Marginal2D<Float, 1, true>;
 
     MiePhaseFunction(const Properties &props) : Base(props) {
         if constexpr(is_rgb_v<Spectrum>)
@@ -86,6 +87,69 @@ public:
         m_flags = +PhaseFunctionFlags::Anisotropic;
         dr::set_attr(this, "flags", m_flags);
         m_components.push_back(m_flags);
+
+        construct_pf();
+    }
+
+    /**
+     * \brief Construct 2D sampling distribution for phase function 
+     * due to its spikiness and complexity of evaluation.
+     */
+    void construct_pf() {
+        ScalarFloat wavelength_min = MI_CIE_MIN;
+        ScalarFloat wavelength_max = MI_CIE_MAX;
+        ScalarFloat wavelength_range = wavelength_max - wavelength_min;
+        uint32_t wavelength_res = (uint32_t) (wavelength_max - wavelength_min); // 1 nm resolution
+
+        uint32_t theta_res = 180;
+        uint32_t phi_res = 2;
+
+        // Phase function evaluated at theta_res x phi_res grid points
+        std::vector<ScalarFloat> wavelengths(wavelength_res);  
+        std::vector<ScalarFloat> values(wavelength_res * theta_res * phi_res);
+
+        for (size_t v = 0; v < wavelength_res; v++) {
+            ScalarFloat wavelength = wavelengths[v] = wavelength_min + (ScalarFloat) v * wavelength_range / wavelength_res;
+            uint32_t pfx = theta_res * phi_res * v;
+
+            for (size_t i = 0; i < theta_res; i++) {
+                ScalarFloat theta = dr::Pi<ScalarFloat> * (ScalarFloat) i / (theta_res - 1);
+                ScalarFloat mu = dr::cos(theta);
+
+                auto [s1, s2, ns] = mie_s1s2(wavelength, mu, m_r, m_ior_med, m_ior_sph, m_nmax);
+
+                // Phase function value
+                auto value = 0.5f * (dr::squared_norm(s1) + dr::squared_norm(s2)) * dr::rcp(ns);
+
+                for (size_t j = 0; j < phi_res; j++) {
+                    // Phase function does not actually depend on phi
+                    values[pfx + j * theta_res + i] = value;
+                }
+            }
+        }
+
+        m_pf = Warp2D1(
+            values.data(),
+            ScalarVector2u(theta_res, phi_res),
+            {{
+                (uint32_t) wavelength_res
+            }},
+            {{
+                wavelengths.data()
+            }},
+            false, true
+        );
+    }
+
+    /**
+     * Numerically stable method computing the elevation of the given
+     * (normalized) vector in the local frame.
+     * Conceptually equivalent to:
+     *     safe_acos(Frame3f::cos_theta(d))
+     */
+    auto elevation(const Vector3f &d) const {
+        auto dist = dr::sqrt(dr::sqr(d.x()) + dr::sqr(d.y()) + dr::sqr(d.z() - 1.f));
+        return 2.f * dr::safe_asin(.5f * dist);
     }
 
     Spectrum eval_mie(const PhaseFunctionContext &ctx, 
@@ -137,7 +201,7 @@ public:
                                                       wi_hat, p_axis_out, mueller::stokes_basis(wi_hat));
 
             // If the cross product x_hat is too small, M may be NaN due to normalize()
-            dr::masked(phase_val, dr::any_nested(dr::isnan(phase_val))) = depolarizer<Spectrum>(0.f);
+            dr::masked(phase_val, dr::isnan(phase_val)) = 0.f;
         } else {
             phase_val = 0.5f * (dr::squared_norm(s1) + dr::squared_norm(s2)) * dr::rcp(ns);
         }
@@ -145,25 +209,60 @@ public:
         return phase_val;
     }
 
-    std::pair<Vector3f, Spectrum> sample(const PhaseFunctionContext & /* ctx */,
-                                      const MediumInteraction3f & /* mi */,
+    std::pair<Vector3f, Spectrum> sample(const PhaseFunctionContext & ctx,
+                                      const MediumInteraction3f & mi,
                                       Float /* sample1 */,
-                                      const Point2f & /* sample2 */,
+                                      const Point2f & sample2,
                                       Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionSample, active);
-        NotImplementedError("sample");
+        
+        // Workaround for now, which wavelength would we choose for full spectral renderings?
+        Float params[1] = { mi.wavelengths[0] };
+
+        // Draw direction sample
+        auto [u_wo, pdf] = m_pf.sample(sample2, params, active);
+
+        // Unit coordinates -> spherical coordinates
+        Float theta_o = u2theta(u_wo.x()),
+              phi_o   = u2phi(u_wo.y());
+
+        // Spherical coordinates -> Cartesian coordinates
+        auto [sin_theta_o, cos_theta_o] = dr::sincos(theta_o);
+        auto [sin_phi_o, cos_phi_o] = dr::sincos(phi_o);
+
+        // Direction in local space (wi in +z direction)
+        Vector3f wo(sin_theta_o * cos_phi_o, 
+                    sin_theta_o * sin_phi_o, 
+                    cos_theta_o);
+
+        // Get Mueller matrix (TODO: use tabulated phase function instead)
+        Spectrum phase_val = eval_mie(ctx, mi, wo, active);
+
+        return { wo, (phase_val / pdf) & active };
     }
 
-    Spectrum eval(const PhaseFunctionContext & ctx, const MediumInteraction3f &mi,
+    Spectrum eval(const PhaseFunctionContext &ctx, const MediumInteraction3f &mi,
                const Vector3f &wo, Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionEvaluate, active);
         return eval_mie(ctx, mi, wo, active);
     }
 
-     Float pdf(const PhaseFunctionContext & /* ctx */, const MediumInteraction3f & /* mi */,
-               const Vector3f & /* wo */, Mask active) const override {
+     Float pdf(const PhaseFunctionContext &ctx, const MediumInteraction3f &mi,
+               const Vector3f &wo, Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionEvaluate, active);
-        NotImplementedError("pdf");
+        
+        // Cartesian coordinates -> spherical coordinates
+        Float theta_o = elevation(wo),
+              phi_o   = dr::atan2(wo.y(), wo.x());
+
+        // Spherical coordinates -> unit coordinates
+        Vector2f u_wo(theta2u(theta_o), phi2u(phi_o));
+
+        Float params[1] = { mi.wavelengths[0] };
+
+        auto [sample, pdf] = m_pf.invert(u_wo, params, active);
+
+        return dr::select(active, pdf, 0.f);
     }
 
     void traverse(TraversalCallback *callback) override {
@@ -184,9 +283,27 @@ public:
 
     MI_DECLARE_CLASS()
 private:
+    template <typename Value> Value u2theta(Value u) const {
+        return u * dr::Pi<Value>;
+    }
+
+    template <typename Value> Value u2phi(Value u) const {
+        return (2.f * u - 1.f) * dr::Pi<Value>;
+    }
+
+    template <typename Value> Value theta2u(Value theta) const {
+        return dr::clamp(theta * dr::InvPi<Value>, 0.f, 1.f);
+    }
+
+    template <typename Value> Value phi2u(Value phi) const {
+        return dr::clamp(phi * dr::InvTwoPi<Value> + 0.5f, 0.f, 1.f);
+    }
+
     ScalarFloat m_r;
     ScalarInt32 m_nmax;
     Complex2f m_ior_med, m_ior_sph;
+
+    Warp2D1 m_pf;
 };
 
 MI_IMPLEMENT_CLASS_VARIANT(MiePhaseFunction, PhaseFunction)

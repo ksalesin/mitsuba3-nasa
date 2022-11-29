@@ -95,17 +95,19 @@ public:
     /**
      * \brief Perform the main rendering job. 
      * 
-     * Instead of writing a multi-pixel image,
-     * this render loop returns the normalized radiance of all paths.
+     * Instead of writing a multi-pixel image, this render loop returns 
+     * a single spectrum that is the accumulated and normalized radiance 
+     * of all paths. 
+     * 
      * Designed to mimic a scientific radiance meter or polarimeter.
      */
-    virtual Spectrum render_radiance_meter(Scene *scene,
-                                           Sensor *sensor,
-                                           uint32_t seed = 0,
-                                           uint32_t spp = 0,
-                                           bool develop = true,
-                                           bool evaluate = true,
-                                           size_t thread_count = 0) = 0;
+    virtual Spectrum render_1(Scene *scene,
+                              Sensor *sensor,
+                              uint32_t seed = 0,
+                              uint32_t spp = 0,
+                              bool develop = true,
+                              bool evaluate = true,
+                              size_t thread_count = 0) = 0;
 
     /**
      * \brief Render the scene
@@ -114,13 +116,13 @@ public:
      * overload. It accepts a sensor *index* instead and renders the scene
      * using sensor 0 by default.
      */
-    Spectrum render_radiance_meter(Scene *scene,
-                    uint32_t sensor_index = 0,
-                    uint32_t seed = 0,
-                    uint32_t spp = 0,
-                    bool develop = true,
-                    bool evaluate = true,
-                    size_t thread_count = 0);
+    Spectrum render_1(Scene *scene,
+                      uint32_t sensor_index = 0,
+                      uint32_t seed = 0,
+                      uint32_t spp = 0,
+                      bool develop = true,
+                      bool evaluate = true,
+                      size_t thread_count = 0);
 
     /// \brief Cancel a running render job (e.g. after receiving Ctrl-C)
     virtual void cancel();
@@ -245,13 +247,13 @@ public:
                     bool develop = true,
                     bool evaluate = true) override;
 
-    virtual Spectrum render_radiance_meter(Scene *scene,
-                                           Sensor *sensor,
-                                           uint32_t seed = 0,
-                                           uint32_t spp = 0,
-                                           bool develop = true,
-                                           bool evaluate = true,
-                                           size_t thread_count = 0) override;
+    Spectrum render_1(Scene *scene,
+                      Sensor *sensor,
+                      uint32_t seed = 0,
+                      uint32_t spp = 0,
+                      bool develop = true,
+                      bool evaluate = true,
+                      size_t thread_count = 0) override;
 
     //! @}
     // =========================================================================
