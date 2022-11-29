@@ -22,13 +22,25 @@ void optix_initialize() {
     L(optixAccelCompact);
     L(optixModuleCreateFromPTXWithTasks);
     L(optixModuleGetCompilationState);
-    L(optixModuleDestroy)
     L(optixTaskExecute);
     L(optixProgramGroupCreate);
-    L(optixProgramGroupDestroy)
     L(optixSbtRecordPackHeader);
+    L(optixDenoiserCreate);
+    L(optixDenoiserDestroy);
+    L(optixDenoiserComputeMemoryResources);
+    L(optixDenoiserSetup);
+    L(optixDenoiserInvoke);
+    L(optixDenoiserComputeIntensity);
 
     #undef L
+}
+
+scoped_optix_context::scoped_optix_context() {
+    jit_cuda_push_context(jit_cuda_context());
+}
+
+scoped_optix_context::~scoped_optix_context() {
+    jit_cuda_pop_context();
 }
 
 NAMESPACE_END(mitsuba)

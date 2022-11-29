@@ -231,11 +231,7 @@ public:
 
         initialize_lobes();
 
-        dr::make_opaque(m_base_color, m_roughness, m_anisotropic, m_sheen,
-                        m_sheen_tint, m_spec_trans, m_flatness, m_spec_tint,
-                        m_clearcoat, m_clearcoat_gloss, m_metallic, m_eta,
-                        m_diff_refl_srate, m_spec_srate, m_clearcoat_srate);
-
+        dr::make_opaque(m_eta);
         if (!m_eta_specular)
             dr::make_opaque(m_specular);
     }
@@ -329,11 +325,7 @@ public:
 
         initialize_lobes();
 
-        dr::make_opaque(m_base_color, m_roughness, m_anisotropic, m_sheen,
-                        m_sheen_tint, m_spec_trans, m_flatness, m_spec_tint,
-                        m_clearcoat, m_clearcoat_gloss, m_metallic, m_eta,
-                        m_diff_refl_srate, m_spec_srate, m_clearcoat_srate);
-
+        dr::make_opaque(m_eta);
         if (!m_eta_specular)
             dr::make_opaque(m_specular);
     }
@@ -843,6 +835,11 @@ public:
                     prob_clearcoat * cc_dist.pdf(wh) * dwh_dwo_abs;
         }
         return pdf;
+    }
+
+    Spectrum eval_diffuse_reflectance(const SurfaceInteraction3f &si,
+                                      Mask active) const override {
+        return m_base_color->eval(si, active);
     }
 
     std::string to_string() const override {
