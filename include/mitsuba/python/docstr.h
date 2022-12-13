@@ -113,11 +113,73 @@ static const char *__doc_OptixBuildInputTriangleArray_vertexStrideInBytes = R"do
 
 static const char *__doc_OptixBuildInput_type = R"doc()doc";
 
+static const char *__doc_OptixDenoiserGuideLayer = R"doc()doc";
+
+static const char *__doc_OptixDenoiserGuideLayer_albedo = R"doc()doc";
+
+static const char *__doc_OptixDenoiserGuideLayer_flow = R"doc()doc";
+
+static const char *__doc_OptixDenoiserGuideLayer_normal = R"doc()doc";
+
+static const char *__doc_OptixDenoiserLayer = R"doc()doc";
+
+static const char *__doc_OptixDenoiserLayer_input = R"doc()doc";
+
+static const char *__doc_OptixDenoiserLayer_output = R"doc()doc";
+
+static const char *__doc_OptixDenoiserLayer_previousOutput = R"doc()doc";
+
+static const char *__doc_OptixDenoiserModelKind = R"doc()doc";
+
+static const char *__doc_OptixDenoiserModelKind_OPTIX_DENOISER_MODEL_KIND_HDR = R"doc()doc";
+
+static const char *__doc_OptixDenoiserModelKind_OPTIX_DENOISER_MODEL_KIND_TEMPORAL = R"doc()doc";
+
+static const char *__doc_OptixDenoiserOptions = R"doc()doc";
+
+static const char *__doc_OptixDenoiserOptions_guideAlbedo = R"doc()doc";
+
+static const char *__doc_OptixDenoiserOptions_guideNormal = R"doc()doc";
+
+static const char *__doc_OptixDenoiserParams = R"doc()doc";
+
+static const char *__doc_OptixDenoiserParams_blendFactor = R"doc()doc";
+
+static const char *__doc_OptixDenoiserParams_denoiseAlpha = R"doc()doc";
+
+static const char *__doc_OptixDenoiserParams_hdrAverageColor = R"doc()doc";
+
+static const char *__doc_OptixDenoiserParams_hdrIntensity = R"doc()doc";
+
+static const char *__doc_OptixDenoiserSizes = R"doc()doc";
+
+static const char *__doc_OptixDenoiserSizes_overlapWindowSizeInPixels = R"doc()doc";
+
+static const char *__doc_OptixDenoiserSizes_stateSizeInBytes = R"doc()doc";
+
+static const char *__doc_OptixDenoiserSizes_withOverlapScratchSizeInBytes = R"doc()doc";
+
+static const char *__doc_OptixDenoiserSizes_withoutOverlapScratchSizeInBytes = R"doc()doc";
+
 static const char *__doc_OptixHitGroupData = R"doc(Stores information about a Shape on the Optix side)doc";
 
 static const char *__doc_OptixHitGroupData_data = R"doc(Pointer to the memory region of Shape data (e.g. ``OptixSphereData`` ))doc";
 
 static const char *__doc_OptixHitGroupData_shape_registry_id = R"doc(Shape id in Dr.Jit's pointer registry)doc";
+
+static const char *__doc_OptixImage2D = R"doc()doc";
+
+static const char *__doc_OptixImage2D_data = R"doc()doc";
+
+static const char *__doc_OptixImage2D_format = R"doc()doc";
+
+static const char *__doc_OptixImage2D_height = R"doc()doc";
+
+static const char *__doc_OptixImage2D_pixelStrideInBytes = R"doc()doc";
+
+static const char *__doc_OptixImage2D_rowStrideInBytes = R"doc()doc";
+
+static const char *__doc_OptixImage2D_width = R"doc()doc";
 
 static const char *__doc_OptixInstance = R"doc()doc";
 
@@ -182,6 +244,24 @@ static const char *__doc_OptixPipelineCompileOptions_traversableGraphFlags = R"d
 static const char *__doc_OptixPipelineCompileOptions_usesMotionBlur = R"doc()doc";
 
 static const char *__doc_OptixPipelineCompileOptions_usesPrimitiveTypeFlags = R"doc()doc";
+
+static const char *__doc_OptixPixelFormat = R"doc()doc";
+
+static const char *__doc_OptixPixelFormat_OPTIX_PIXEL_FORMAT_FLOAT2 = R"doc()doc";
+
+static const char *__doc_OptixPixelFormat_OPTIX_PIXEL_FORMAT_FLOAT3 = R"doc()doc";
+
+static const char *__doc_OptixPixelFormat_OPTIX_PIXEL_FORMAT_FLOAT4 = R"doc()doc";
+
+static const char *__doc_OptixPixelFormat_OPTIX_PIXEL_FORMAT_HALF2 = R"doc()doc";
+
+static const char *__doc_OptixPixelFormat_OPTIX_PIXEL_FORMAT_HALF3 = R"doc()doc";
+
+static const char *__doc_OptixPixelFormat_OPTIX_PIXEL_FORMAT_HALF4 = R"doc()doc";
+
+static const char *__doc_OptixPixelFormat_OPTIX_PIXEL_FORMAT_UCHAR3 = R"doc()doc";
+
+static const char *__doc_OptixPixelFormat_OPTIX_PIXEL_FORMAT_UCHAR4 = R"doc()doc";
 
 static const char *__doc_OptixProgramGroupDesc = R"doc()doc";
 
@@ -264,6 +344,8 @@ static const char *__doc_mitsuba_AdjointIntegrator_2 = R"doc()doc";
 static const char *__doc_mitsuba_AdjointIntegrator_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_AdjointIntegrator_4 = R"doc()doc";
+
+static const char *__doc_mitsuba_AdjointIntegrator_5 = R"doc()doc";
 
 static const char *__doc_mitsuba_AdjointIntegrator_AdjointIntegrator = R"doc(Create an integrator)doc";
 
@@ -488,6 +570,8 @@ static const char *__doc_mitsuba_BSDF_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_BSDF_4 = R"doc()doc";
 
+static const char *__doc_mitsuba_BSDF_5 = R"doc()doc";
+
 static const char *__doc_mitsuba_BSDFContext =
 R"doc(Context data structure for BSDF evaluation and sampling
 
@@ -664,6 +748,8 @@ Parameter ``si``:
 
 Parameter ``wo``:
     The outgoing direction)doc";
+
+static const char *__doc_mitsuba_BSDF_eval_diffuse_reflectance = R"doc(Return the diffuse reflectance value)doc";
 
 static const char *__doc_mitsuba_BSDF_eval_null_transmission =
 R"doc(Evaluate un-scattered transmission component of the BSDF
@@ -2151,6 +2237,8 @@ static const char *__doc_mitsuba_Emitter_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_Emitter_4 = R"doc()doc";
 
+static const char *__doc_mitsuba_Emitter_5 = R"doc()doc";
+
 static const char *__doc_mitsuba_EmitterFlags =
 R"doc(This list of flags is used to classify the different types of
 emitters.)doc";
@@ -2237,6 +2325,8 @@ static const char *__doc_mitsuba_Endpoint_2 = R"doc()doc";
 static const char *__doc_mitsuba_Endpoint_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_Endpoint_4 = R"doc()doc";
+
+static const char *__doc_mitsuba_Endpoint_5 = R"doc()doc";
 
 static const char *__doc_mitsuba_Endpoint_Endpoint = R"doc()doc";
 
@@ -2645,6 +2735,8 @@ static const char *__doc_mitsuba_Film_2 = R"doc()doc";
 static const char *__doc_mitsuba_Film_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_Film_4 = R"doc()doc";
+
+static const char *__doc_mitsuba_Film_5 = R"doc()doc";
 
 static const char *__doc_mitsuba_FilmFlags = R"doc(This list of flags is used to classify the different types of films.)doc";
 
@@ -3087,14 +3179,15 @@ In addition to receiving samples via the put() method, the image block
 can also be queried via the read() method, in which case the
 reconstruction filter is used to compute suitable interpolation
 weights. This is feature is useful for differentiable rendering, where
-we one needs to evaluate the reverse-mode derivative of the put()
-method.)doc";
+one needs to evaluate the reverse-mode derivative of the put() method.)doc";
 
 static const char *__doc_mitsuba_ImageBlock_2 = R"doc()doc";
 
 static const char *__doc_mitsuba_ImageBlock_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_ImageBlock_4 = R"doc()doc";
+
+static const char *__doc_mitsuba_ImageBlock_5 = R"doc()doc";
 
 static const char *__doc_mitsuba_ImageBlock_ImageBlock =
 R"doc(Construct a zero-initialized image block with the desired shape and
@@ -3330,6 +3423,8 @@ static const char *__doc_mitsuba_Integrator_2 = R"doc()doc";
 static const char *__doc_mitsuba_Integrator_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_Integrator_4 = R"doc()doc";
+
+static const char *__doc_mitsuba_Integrator_5 = R"doc()doc";
 
 static const char *__doc_mitsuba_Integrator_Integrator = R"doc(Create an integrator)doc";
 
@@ -3817,6 +3912,8 @@ static const char *__doc_mitsuba_Medium_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_Medium_4 = R"doc()doc";
 
+static const char *__doc_mitsuba_Medium_5 = R"doc()doc";
+
 static const char *__doc_mitsuba_MediumInteraction = R"doc(Stores information related to a medium scattering interaction)doc";
 
 static const char *__doc_mitsuba_MediumInteraction_MediumInteraction = R"doc()doc";
@@ -4095,6 +4192,8 @@ static const char *__doc_mitsuba_Mesh_2 = R"doc()doc";
 static const char *__doc_mitsuba_Mesh_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_Mesh_4 = R"doc()doc";
+
+static const char *__doc_mitsuba_Mesh_5 = R"doc()doc";
 
 static const char *__doc_mitsuba_Mesh_Mesh = R"doc(Create a new mesh with the given vertex and face data structures)doc";
 
@@ -4498,6 +4597,8 @@ static const char *__doc_mitsuba_MonteCarloIntegrator_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_MonteCarloIntegrator_4 = R"doc()doc";
 
+static const char *__doc_mitsuba_MonteCarloIntegrator_5 = R"doc()doc";
+
 static const char *__doc_mitsuba_MonteCarloIntegrator_MonteCarloIntegrator = R"doc(Create an integrator)doc";
 
 static const char *__doc_mitsuba_MonteCarloIntegrator_class = R"doc()doc";
@@ -4648,6 +4749,174 @@ static const char *__doc_mitsuba_OptixAccelData_meshes = R"doc()doc";
 
 static const char *__doc_mitsuba_OptixAccelData_others = R"doc()doc";
 
+static const char *__doc_mitsuba_OptixDenoiser =
+R"doc(Wrapper for the OptiX AI denoiser
+
+The OptiX AI denoiser is wrapped in this object such that it can work
+directly with Mitsuba types and its conventions.
+
+The denoiser works best when applied to noisy renderings that were
+produced with a Film which used the `box` ReconstructionFilter. With a
+filter that spans multiple pixels, the denoiser might identify some
+local variance as a feature of the scene and will not denoise it.)doc";
+
+static const char *__doc_mitsuba_OptixDenoiser_2 = R"doc()doc";
+
+static const char *__doc_mitsuba_OptixDenoiser_3 = R"doc()doc";
+
+static const char *__doc_mitsuba_OptixDenoiser_4 = R"doc()doc";
+
+static const char *__doc_mitsuba_OptixDenoiser_5 = R"doc()doc";
+
+static const char *__doc_mitsuba_OptixDenoiser_OptixDenoiser =
+R"doc(Constructs an OptiX denoiser
+
+Parameter ``input_size``:
+    Resolution of noisy images that will be fed to the denoiser.
+
+Parameter ``albedo``:
+    Whether or not albedo information will also be given to the
+    denoiser.
+
+Parameter ``normals``:
+    Whether or not shading normals information will also be given to
+    the Denoiser.
+
+Returns:
+    A callable object which will apply the OptiX denoiser.)doc";
+
+static const char *__doc_mitsuba_OptixDenoiser_OptixDenoiser_2 = R"doc()doc";
+
+static const char *__doc_mitsuba_OptixDenoiser_class = R"doc()doc";
+
+static const char *__doc_mitsuba_OptixDenoiser_m_denoiser = R"doc()doc";
+
+static const char *__doc_mitsuba_OptixDenoiser_m_hdr_intensity = R"doc()doc";
+
+static const char *__doc_mitsuba_OptixDenoiser_m_input_size = R"doc()doc";
+
+static const char *__doc_mitsuba_OptixDenoiser_m_options = R"doc()doc";
+
+static const char *__doc_mitsuba_OptixDenoiser_m_scratch = R"doc()doc";
+
+static const char *__doc_mitsuba_OptixDenoiser_m_scratch_size = R"doc()doc";
+
+static const char *__doc_mitsuba_OptixDenoiser_m_state = R"doc()doc";
+
+static const char *__doc_mitsuba_OptixDenoiser_m_state_size = R"doc()doc";
+
+static const char *__doc_mitsuba_OptixDenoiser_m_temporal = R"doc()doc";
+
+static const char *__doc_mitsuba_OptixDenoiser_operator_assign = R"doc()doc";
+
+static const char *__doc_mitsuba_OptixDenoiser_operator_call =
+R"doc(Apply denoiser on inputs which are TensorXf objects.
+
+Parameter ``noisy``:
+    The noisy input. (tensor shape: (width, height, 3 | 4))
+
+Parameter ``denoise_alpha``:
+    Whether or not the alpha channel (if specified in the noisy input)
+    should be denoised too. This parameter is optional, by default it
+    is true.
+
+Parameter ``albedo``:
+    Albedo information of the noisy rendering. This parameter is
+    optional unless the OptixDenoiser was built with albedo support.
+    (tensor shape: (width, height, 3))
+
+Parameter ``normals``:
+    Shading normal information of the noisy rendering. The normals
+    must be in the coordinate frame of the sensor which was used to
+    render the noisy input. This parameter is optional unless the
+    OptixDenoiser was built with normals support. (tensor shape:
+    (width, height, 3))
+
+Parameter ``to_sensor``:
+    A Transform4f which is applied to the ``normals`` parameter before
+    denoising. This should be used to tranform the normals into the
+    correct coordinate frame. This parameter is optional, by default
+    no transformation is applied.
+
+Parameter ``flow``:
+    With temporal denoising, this parameter is the optical flow
+    between the previous frame and the current one. It should capture
+    the 2D motion of each individual pixel. When this parameter is
+    unknown, it can been set to a zero-initialized TensorXf of the
+    correct size and still produce convincing results. This parameter
+    is optional unless the OptixDenoiser was built with temporal
+    denoising support. (tensor shape: (width, height, 2))
+
+Parameter ``previous_denoised``:
+    With temporal denoising, the previous denoised frame should be
+    passed here. For the very first frame, the OptiX documentation
+    recommends passing the noisy input for this argument. This
+    parameter is optional unless the OptixDenoiser was built with
+    temporal denoising support. (tensor shape: (width, height, 3 | 4))
+
+Returns:
+    The denoised input.)doc";
+
+static const char *__doc_mitsuba_OptixDenoiser_operator_call_2 =
+R"doc(Apply denoiser on inputs which are Bitmap objects.
+
+Parameter ``noisy``:
+    The noisy input. When passing additional information like albedo
+    or normals to the denoiser, this Bitmap object must be a
+    MultiChannel bitmap.
+
+Parameter ``denoise_alpha``:
+    Whether or not the alpha channel (if specified in the noisy input)
+    should be denoised too. This parameter is optional, by default it
+    is true.
+
+Parameter ``albedo_ch``:
+    The name of the channel in the ``noisy`` parameter which contains
+    the albedo information of the noisy rendering. This parameter is
+    optional unless the OptixDenoiser was built with albedo support.
+
+Parameter ``normals_ch``:
+    The name of the channel in the ``noisy`` parameter which contains
+    the shading normal information of the noisy rendering. The normals
+    must be in the coordinate frame of the sensor which was used to
+    render the noisy input. This parameter is optional unless the
+    OptixDenoiser was built with normals support.
+
+Parameter ``to_sensor``:
+    A Transform4f which is applied to the ``normals`` parameter before
+    denoising. This should be used to tranform the normals into the
+    correct coordinate frame. This parameter is optional, by default
+    no transformation is applied.
+
+Parameter ``flow_ch``:
+    With temporal denoising, this parameter is name of the channel in
+    the ``noisy`` parameter which contains the optical flow between
+    the previous frame and the current one. It should capture the 2D
+    motion of each individual pixel. When this parameter is unknown,
+    it can been set to a zero-initialized TensorXf of the correct size
+    and still produce convincing results. This parameter is optional
+    unless the OptixDenoiser was built with temporal denoising
+    support.
+
+Parameter ``previous_denoised_ch``:
+    With temporal denoising, this parameter is name of the channel in
+    the ``noisy`` parameter which contains the previous denoised
+    frame. For the very first frame, the OptiX documentation
+    recommends passing the noisy input for this argument. This
+    parameter is optional unless the OptixDenoiser was built with
+    temporal denoising support.
+
+Parameter ``noisy_ch``:
+    The name of the channel in the ``noisy`` parameter which contains
+    the shading normal information of the noisy rendering.
+
+Returns:
+    The denoised input.)doc";
+
+static const char *__doc_mitsuba_OptixDenoiser_to_string = R"doc()doc";
+
+static const char *__doc_mitsuba_OptixDenoiser_validate_input = R"doc(Helper function to validate tensor sizes)doc";
+
 static const char *__doc_mitsuba_PCG32Sampler =
 R"doc(Interface for sampler plugins based on the PCG32 random number
 generator)doc";
@@ -4657,6 +4926,8 @@ static const char *__doc_mitsuba_PCG32Sampler_2 = R"doc()doc";
 static const char *__doc_mitsuba_PCG32Sampler_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_PCG32Sampler_4 = R"doc()doc";
+
+static const char *__doc_mitsuba_PCG32Sampler_5 = R"doc()doc";
 
 static const char *__doc_mitsuba_PCG32Sampler_PCG32Sampler = R"doc()doc";
 
@@ -4695,6 +4966,8 @@ static const char *__doc_mitsuba_PhaseFunction_2 = R"doc()doc";
 static const char *__doc_mitsuba_PhaseFunction_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_PhaseFunction_4 = R"doc()doc";
+
+static const char *__doc_mitsuba_PhaseFunction_5 = R"doc()doc";
 
 static const char *__doc_mitsuba_PhaseFunctionContext = R"doc()doc";
 
@@ -5151,6 +5424,8 @@ static const char *__doc_mitsuba_ProjectiveCamera_2 = R"doc()doc";
 static const char *__doc_mitsuba_ProjectiveCamera_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_ProjectiveCamera_4 = R"doc()doc";
+
+static const char *__doc_mitsuba_ProjectiveCamera_5 = R"doc()doc";
 
 static const char *__doc_mitsuba_ProjectiveCamera_ProjectiveCamera = R"doc()doc";
 
@@ -5616,6 +5891,8 @@ static const char *__doc_mitsuba_ReconstructionFilter_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_ReconstructionFilter_4 = R"doc()doc";
 
+static const char *__doc_mitsuba_ReconstructionFilter_5 = R"doc()doc";
+
 static const char *__doc_mitsuba_ReconstructionFilter_ReconstructionFilter = R"doc(Create a new reconstruction filter)doc";
 
 static const char *__doc_mitsuba_ReconstructionFilter_border_size = R"doc(Return the block border size required when rendering with this filter)doc";
@@ -5788,6 +6065,8 @@ static const char *__doc_mitsuba_Sampler_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_Sampler_4 = R"doc()doc";
 
+static const char *__doc_mitsuba_Sampler_5 = R"doc()doc";
+
 static const char *__doc_mitsuba_Sampler_Sampler = R"doc()doc";
 
 static const char *__doc_mitsuba_Sampler_Sampler_2 = R"doc(Copy state to a new sampler object)doc";
@@ -5881,6 +6160,8 @@ static const char *__doc_mitsuba_SamplingIntegrator_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_SamplingIntegrator_4 = R"doc()doc";
 
+static const char *__doc_mitsuba_SamplingIntegrator_5 = R"doc()doc";
+
 static const char *__doc_mitsuba_SamplingIntegrator_SamplingIntegrator = R"doc(//! @})doc";
 
 static const char *__doc_mitsuba_SamplingIntegrator_class = R"doc()doc";
@@ -5969,6 +6250,8 @@ static const char *__doc_mitsuba_Scene_2 = R"doc()doc";
 static const char *__doc_mitsuba_Scene_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_Scene_4 = R"doc()doc";
+
+static const char *__doc_mitsuba_Scene_5 = R"doc()doc";
 
 static const char *__doc_mitsuba_Scene_Scene = R"doc(Instantiate a scene from a Properties object)doc";
 
@@ -6469,6 +6752,8 @@ static const char *__doc_mitsuba_Sensor_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_Sensor_4 = R"doc()doc";
 
+static const char *__doc_mitsuba_Sensor_5 = R"doc()doc";
+
 static const char *__doc_mitsuba_Sensor_Sensor = R"doc()doc";
 
 static const char *__doc_mitsuba_Sensor_class = R"doc()doc";
@@ -6597,6 +6882,8 @@ static const char *__doc_mitsuba_Shape_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_Shape_4 = R"doc()doc";
 
+static const char *__doc_mitsuba_Shape_5 = R"doc()doc";
+
 static const char *__doc_mitsuba_ShapeGroup = R"doc()doc";
 
 static const char *__doc_mitsuba_ShapeGroup_2 = R"doc()doc";
@@ -6604,6 +6891,8 @@ static const char *__doc_mitsuba_ShapeGroup_2 = R"doc()doc";
 static const char *__doc_mitsuba_ShapeGroup_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_ShapeGroup_4 = R"doc()doc";
+
+static const char *__doc_mitsuba_ShapeGroup_5 = R"doc()doc";
 
 static const char *__doc_mitsuba_ShapeGroup_ShapeGroup = R"doc()doc";
 
@@ -6637,8 +6926,6 @@ static const char *__doc_mitsuba_ShapeGroup_m_shapes = R"doc()doc";
 
 static const char *__doc_mitsuba_ShapeGroup_m_shapes_registry_ids = R"doc()doc";
 
-static const char *__doc_mitsuba_ShapeGroup_optix_accel_ready = R"doc()doc";
-
 static const char *__doc_mitsuba_ShapeGroup_optix_build_gas = R"doc(Build OptiX geometry acceleration structures)doc";
 
 static const char *__doc_mitsuba_ShapeGroup_optix_fill_hitgroup_records = R"doc()doc";
@@ -6658,6 +6945,8 @@ static const char *__doc_mitsuba_ShapeKDTree_2 = R"doc()doc";
 static const char *__doc_mitsuba_ShapeKDTree_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_ShapeKDTree_4 = R"doc()doc";
+
+static const char *__doc_mitsuba_ShapeKDTree_5 = R"doc()doc";
 
 static const char *__doc_mitsuba_ShapeKDTree_ShapeKDTree =
 R"doc(Create an empty kd-tree and take build-related parameters from
@@ -8312,6 +8601,8 @@ static const char *__doc_mitsuba_Texture_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_Texture_4 = R"doc()doc";
 
+static const char *__doc_mitsuba_Texture_5 = R"doc()doc";
+
 static const char *__doc_mitsuba_Texture_D65 = R"doc(Convenience function returning the standard D65 illuminant)doc";
 
 static const char *__doc_mitsuba_Texture_D65_2 =
@@ -8837,6 +9128,8 @@ static const char *__doc_mitsuba_Volume_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_Volume_4 = R"doc()doc";
 
+static const char *__doc_mitsuba_Volume_5 = R"doc()doc";
+
 static const char *__doc_mitsuba_VolumeGrid = R"doc()doc";
 
 static const char *__doc_mitsuba_VolumeGrid_2 = R"doc()doc";
@@ -8844,6 +9137,8 @@ static const char *__doc_mitsuba_VolumeGrid_2 = R"doc()doc";
 static const char *__doc_mitsuba_VolumeGrid_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_VolumeGrid_4 = R"doc()doc";
+
+static const char *__doc_mitsuba_VolumeGrid_5 = R"doc()doc";
 
 static const char *__doc_mitsuba_VolumeGrid_VolumeGrid =
 R"doc(Load a VolumeGrid from a given filename
@@ -9766,6 +10061,20 @@ recurrence)doc";
 static const char *__doc_mitsuba_math_legendre_pd_diff = R"doc(Evaluate the function legendre_pd(l+1, x) - legendre_pd(l-1, x))doc";
 
 static const char *__doc_mitsuba_math_log2i_ceil = R"doc(Ceiling of base-2 logarithm)doc";
+
+static const char *__doc_mitsuba_math_middle =
+R"doc(This function computes a suitable middle point for use in the bisect()
+function
+
+To mitigate the issue of varying density of floating point numbers on
+the number line, the floats are reinterpreted as unsigned integers. As
+long as sign of both numbers is the same, this maps the floats to the
+evenly spaced set of integers. The middle of these integers ensures
+that the space of numbers is halved on each iteration of the
+bisection.
+
+Note that this strategy does not work if the numbers have different
+sign. In this case the function always returns 0.0 as the middle.)doc";
 
 static const char *__doc_mitsuba_math_modulo = R"doc(Always-positive modulo function)doc";
 

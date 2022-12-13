@@ -299,6 +299,9 @@ protected:
      * If set to (uint32_t) -1, all the work is done in a single pass (default).
      */
     uint32_t m_samples_per_pass;
+
+    /// Counter to create unique block_id
+    uint32_t m_block_count;
 };
 
 /** \brief Abstract integrator that performs *recursive* Monte Carlo sampling

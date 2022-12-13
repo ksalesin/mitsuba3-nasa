@@ -413,9 +413,9 @@ class ADIntegrator(mi.CppADIntegrator):
         scene: mi.Scene,
         sensor: mi.Sensor,
         sampler: mi.Sampler,
-        reparam: Callable[[mi.Ray3f, mi.Bool],
-                          Tuple[mi.Ray3f, mi.Float]] = None
-    ) -> Tuple[mi.RayDifferential3f, mi.Spectrum, mi.Vector2f]:
+        reparam: Callable[[mi.Ray3f, mi.UInt32, mi.Bool],
+                          Tuple[mi.Vector3f, mi.Float]] = None
+    ) -> Tuple[mi.RayDifferential3f, mi.Spectrum, mi.Vector2f, mi.Float]:
         """
         Sample a 2D grid of primary rays for a given sensor
 
@@ -482,12 +482,13 @@ class ADIntegrator(mi.CppADIntegrator):
         if mi.is_spectral:
             wavelength_sample = sampler.next_1d()
 
-        ray, weight = sensor.sample_ray_differential(
-            time=time,
-            sample1=wavelength_sample,
-            sample2=pos_adjusted,
-            sample3=aperture_sample
-        )
+        with dr.resume_grad():
+            ray, weight = sensor.sample_ray_differential(
+                time=time,
+                sample1=wavelength_sample,
+                sample2=pos_adjusted,
+                sample3=aperture_sample
+            )
 
         reparam_det = 1.0
 
@@ -498,7 +499,7 @@ class ADIntegrator(mi.CppADIntegrator):
                     "motion due to differentiable shape or camera pose "
                     "parameters. This is, however, incompatible with the box "
                     "reconstruction filter that is currently used. Please "
-                    "specify a a smooth reconstruction filter in your scene "
+                    "specify a smooth reconstruction filter in your scene "
                     "description (e.g. 'gaussian', which is actually the "
                     "default)")
 
@@ -515,10 +516,16 @@ class ADIntegrator(mi.CppADIntegrator):
 
             with dr.resume_grad():
                 # Reparameterize the camera ray
-                reparam_d, reparam_det = reparam(ray=ray, depth=mi.UInt32(0))
+                reparam_d, reparam_det = reparam(ray=dr.detach(ray),
+                                                 depth=mi.UInt32(0))
 
-                # Create a fake interaction along the sampled ray and use it to the
-                # position with derivative tracking
+                # TODO better understand why this is necessary
+                # Reparameterize the camera ray to handle camera translations
+                if dr.grad_enabled(ray.o):
+                    reparam_d, _ = reparam(ray=ray, depth=mi.UInt32(0))
+
+                # Create a fake interaction along the sampled ray and use it to
+                # recompute the position with derivative tracking
                 it = dr.zeros(mi.Interaction3f)
                 it.p = ray.o + reparam_d
                 ds, _ = sensor.sample_direction(it, aperture_sample)
@@ -577,17 +584,12 @@ class ADIntegrator(mi.CppADIntegrator):
 
         wavefront_size = dr.prod(film_size) * spp
 
-        is_llvm = dr.is_llvm_v(mi.Float)
-        wavefront_size_limit = 0xffffffff if is_llvm else 0x40000000
-
-        if wavefront_size >  wavefront_size_limit:
+        if wavefront_size > 2**32:
             raise Exception(
-                "Tried to perform a %s-based rendering with a total sample "
-                "count of %u, which exceeds 2^%u = %u (the upper limit "
-                "for this backend). Please use fewer samples per pixel or "
-                "render using multiple passes." %
-                ("LLVM JIT" if is_llvm else "OptiX", wavefront_size,
-                 dr.log2i(wavefront_size_limit) + 1, wavefront_size_limit))
+                "The total number of Monte Carlo samples required by this "
+                "rendering task (%i) exceeds 2^32 = 4294967296. Please use "
+                "fewer samples per pixel or render using multiple passes."
+                % wavefront_size)
 
         sampler.seed(seed, wavefront_size)
         film.prepare(aovs)
@@ -603,10 +605,9 @@ class ADIntegrator(mi.CppADIntegrator):
                δL: Optional[mi.Spectrum],
                state_in: Any,
                reparam: Optional[
-                   Callable[[mi.Ray3f, mi.Bool],
-                            Tuple[mi.Ray3f, mi.Float]]],
-               active: mi.Bool) -> Tuple[mi.Spectrum,
-                                         mi.Bool]:
+                   Callable[[mi.Ray3f, mi.UInt32, mi.Bool],
+                            Tuple[mi.Vector3f, mi.Float]]],
+               active: mi.Bool) -> Tuple[mi.Spectrum, mi.Bool]:
         """
         This function does the main work of differentiable rendering and
         remains unimplemented here. It is provided by subclasses of the
@@ -1425,8 +1426,8 @@ class _ReparamWrapper:
                  params: Any,
                  reparam: Callable[
                      [mi.Scene, mi.PCG32, Any,
-                      mi.Ray3f, mi.Bool],
-                     Tuple[mi.Ray3f, mi.Float]],
+                      mi.Ray3f, mi.UInt32, mi.Bool],
+                     Tuple[mi.Vector3f, mi.Float]],
                  wavefront_size : int,
                  seed : int):
 
