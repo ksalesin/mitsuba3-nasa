@@ -275,10 +275,9 @@ public:
            reduce importance sampling weights. Not needed for the
            Heitz and D'Eon sampling technique. */
         MicrofacetDistribution sample_distr(distr);
-        if (unlikely(!m_sample_visible))
-            sample_distr.scale_alpha(1.2f - .2f * dr::sqrt(dr::abs(cos_theta_i)));
+        // if (unlikely(!m_sample_visible))
+        //     sample_distr.scale_alpha(1.2f - .2f * dr::sqrt(dr::abs(cos_theta_i)));
 
-        // Sample the microfacet normal
         Normal3f m;
         std::tie(m, bs.pdf) =
             sample_distr.sample(dr::mulsign(si.wi, cos_theta_i), sample2);
@@ -314,12 +313,19 @@ public:
         bs.eta               = dr::select(selected_r, Float(1.f), eta_it);
         bs.sampled_component = dr::select(selected_r, UInt32(0), UInt32(1));
         bs.sampled_type      = dr::select(selected_r,
-                                      UInt32(+BSDFFlags::GlossyReflection),
-                                      UInt32(+BSDFFlags::GlossyTransmission));
+                                    UInt32(+BSDFFlags::GlossyReflection),
+                                    UInt32(+BSDFFlags::GlossyTransmission));
 
         bs.wo = dr::select(selected_r,
-                           reflect(si.wi, m),
-                           refract(si.wi, m, cos_theta_t, eta_ti));
+                        reflect(si.wi, m),
+                        refract(si.wi, m, cos_theta_t, eta_ti));
+
+        /* Filter cases where the micro/macro-surface don't agree on the side.
+           This logic is evaluated in smith_g1() called as part of the eval()
+           and sample() methods and needs to be replicated in the probability
+           density computation as well. */
+        active &= dr::dot(si.wi, m) * Frame3f::cos_theta(si.wi) > 0.f &&
+                  dr::dot(bs.wo, m) * Frame3f::cos_theta(bs.wo) > 0.f;
 
         Float dwh_dwo = 0.f;
 
@@ -430,6 +436,13 @@ public:
 
         // Ensure that the half-vector points into the same hemisphere as the macrosurface normal
         m = dr::mulsign(m, Frame3f::cos_theta(m));
+
+        /* Filter cases where the micro/macro-surface don't agree on the side.
+           This logic is evaluated in smith_g1() called as part of the eval()
+           and sample() methods and needs to be replicated in the probability
+           density computation as well. */
+        active &= dr::dot(si.wi, m) * Frame3f::cos_theta(si.wi) > 0.f &&
+                  dr::dot(wo,    m) * Frame3f::cos_theta(wo)    > 0.f;
 
         /* Construct the microfacet distribution matching the
            roughness values at the current surface position. */
@@ -573,8 +586,8 @@ public:
         /* Trick by Walter et al.: slightly scale the roughness values to
            reduce importance sampling weights. Not needed for the
            Heitz and D'Eon sampling technique. */
-        if (unlikely(!m_sample_visible))
-            sample_distr.scale_alpha(1.2f - .2f * dr::sqrt(dr::abs(Frame3f::cos_theta(si.wi))));
+        // if (unlikely(!m_sample_visible))
+        //     sample_distr.scale_alpha(1.2f - .2f * dr::sqrt(dr::abs(Frame3f::cos_theta(si.wi))));
 
         // Evaluate the microfacet model sampling density function
         Float prob = sample_distr.pdf(dr::mulsign(si.wi, Frame3f::cos_theta(si.wi)), m);
@@ -719,8 +732,8 @@ public:
         /* Trick by Walter et al.: slightly scale the roughness values to
            reduce importance sampling weights. Not needed for the
            Heitz and D'Eon sampling technique. */
-        if (unlikely(!m_sample_visible))
-            distr.scale_alpha(1.2f - .2f * dr::sqrt(dr::abs(cos_theta_i)));
+        // if (unlikely(!m_sample_visible))
+        //     distr.scale_alpha(1.2f - .2f * dr::sqrt(dr::abs(cos_theta_i)));
 
         // Evaluate the microfacet model sampling density function
         Float pdf = distr.pdf(dr::mulsign(si.wi, cos_theta_i), m);
