@@ -514,7 +514,7 @@ public:
      * The default implementation creates a new HitGroupSbtRecord and fills its
      * \ref data field with \ref m_optix_data_ptr. It then calls \ref
      * optixSbtRecordPackHeader with one of the OptixProgramGroup of the \ref
-     * program_groups array (the actual program group index is infered by the
+     * program_groups array (the actual program group index is inferred by the
      * type of the Shape, see \ref get_shape_descr_idx()).
      */
     virtual void optix_fill_hitgroup_records(std::vector<HitGroupSbtRecord> &hitgroup_records,
@@ -645,6 +645,11 @@ DRJIT_VCALL_TEMPLATE_BEGIN(mitsuba::Shape)
     DRJIT_VCALL_METHOD(ray_intersect)
     DRJIT_VCALL_METHOD(ray_test)
     DRJIT_VCALL_METHOD(sample_position)
+    DRJIT_VCALL_METHOD(pdf_position)
+    DRJIT_VCALL_METHOD(sample_direction)
+    DRJIT_VCALL_METHOD(pdf_direction)
+    DRJIT_VCALL_METHOD(eval_parameterization)
+    DRJIT_VCALL_METHOD(surface_area)
     DRJIT_VCALL_GETTER(emitter, const typename Class::Emitter *)
     DRJIT_VCALL_GETTER(sensor, const typename Class::Sensor *)
     DRJIT_VCALL_GETTER(bsdf, const typename Class::BSDF *)

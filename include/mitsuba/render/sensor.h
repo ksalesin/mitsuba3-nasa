@@ -64,7 +64,6 @@ public:
                             const Point2f &sample2, const Point2f &sample3,
                             Mask active = true) const;
 
-
     /**
      * \brief Importance sample a set of wavelengths proportional to the
      * sensitivity spectrum.
@@ -136,15 +135,16 @@ public:
     // =============================================================
 
     void traverse(TraversalCallback *callback) override {
-        callback->put_parameter("shutter_open", m_shutter_open,           +ParamFlags::NonDifferentiable);
-        callback->put_parameter("shutter_open_time", m_shutter_open_time, +ParamFlags::NonDifferentiable);
-        callback->put_object("film", m_film.get(),                        +ParamFlags::NonDifferentiable);
-        callback->put_object("sampler", m_sampler.get(),                  +ParamFlags::NonDifferentiable);
         Base::traverse(callback);
+        callback->put_parameter("shutter_open",      m_shutter_open,      +ParamFlags::NonDifferentiable);
+        callback->put_parameter("shutter_open_time", m_shutter_open_time, +ParamFlags::NonDifferentiable);
+        callback->put_object("film",                 m_film.get(),        +ParamFlags::NonDifferentiable);
+        callback->put_object("sampler",              m_sampler.get(),     +ParamFlags::NonDifferentiable);
     }
 
-    void parameters_changed(const std::vector<std::string> &/*keys*/ = {}) override {
+    void parameters_changed(const std::vector<std::string> &keys = {}) override {
         m_resolution = ScalarVector2f(m_film->crop_size());
+        Base::parameters_changed(keys);
     }
 
     DRJIT_VCALL_REGISTER(Float, mitsuba::Sensor)
@@ -313,10 +313,13 @@ NAMESPACE_END(mitsuba)
 
 DRJIT_VCALL_TEMPLATE_BEGIN(mitsuba::Sensor)
     DRJIT_VCALL_METHOD(sample_ray)
+    DRJIT_VCALL_METHOD(sample_ray_differential)
     DRJIT_VCALL_METHOD(sample_direction)
     DRJIT_VCALL_METHOD(pdf_direction)
     DRJIT_VCALL_METHOD(eval_direction)
     DRJIT_VCALL_METHOD(sample_position)
+    DRJIT_VCALL_METHOD(pdf_position)
+    DRJIT_VCALL_METHOD(eval)
     DRJIT_VCALL_METHOD(sample_wavelengths)
     DRJIT_VCALL_GETTER(flags, uint32_t)
     DRJIT_VCALL_GETTER(shape, const typename Class::Shape *)

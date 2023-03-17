@@ -122,8 +122,8 @@ public:
             return { wo, val };
         }
 
-        Vector3f wo;
-        Spectrum result;
+        Vector3f wo = dr::zeros<Vector3f>();
+        Spectrum result = dr::zeros<Spectrum>();
 
         Mask m0 = active && sample1 > weight,
              m1 = active && sample1 <= weight;
