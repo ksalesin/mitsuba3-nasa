@@ -166,8 +166,8 @@ class ADIntegrator(mi.CppADIntegrator):
             n_wavelengths = len(ray.wavelengths)
 
             # Rotate Stokes reference frames if polarized
-            if mi.is_polarized:
-                L = self.to_sensor_mueller(sensor, ray, L)
+            # if mi.is_polarized:
+            #     L = self.to_sensor_mueller(sensor, ray, L)
 
             # Accumulate final spectrum
             self.primal_spectrum = mi.Spectrum(0.0)
@@ -216,7 +216,7 @@ class ADIntegrator(mi.CppADIntegrator):
                           spec: mi.Spectrum) -> mi.Spectrum:
         """ The Stokes vector that comes from the integrator is still aligned
             with the implicit Stokes frame used for the ray direction. Apply
-            one last rotation here s.t. it aligns with the sensor's x-axis. """
+            one last rotation here s.t. it matches that in [Chowdhary et al. 2020]. """
         current_basis = mi.mueller.stokes_basis(-ray.d)
         vertical = mi.Vector3f(0.0, 0.0, 1.0)
         tmp = dr.cross(-ray.d, vertical)
@@ -1141,8 +1141,8 @@ class RBIntegrator(ADIntegrator):
             n_wavelengths = len(ray.wavelengths)
 
             # Rotate Stokes reference frames if polarized
-            if mi.is_polarized:
-                L = self.to_sensor_mueller(sensor, ray, L)
+            # if mi.is_polarized:
+            #     L = self.to_sensor_mueller(sensor, ray, L)
 
             # Accumulate and normalize final spectrum
             spectrum = mi.Spectrum(0.0)
