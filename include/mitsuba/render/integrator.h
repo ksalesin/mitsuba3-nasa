@@ -386,6 +386,14 @@ public:
                     bool develop = true,
                     bool evaluate = true) override;
 
+    Spectrum render_1(Scene *scene,
+                      Sensor *sensor,
+                      uint32_t seed = 0,
+                      uint32_t spp = 0,
+                      bool develop = true,
+                      bool evaluate = true,
+                      size_t thread_count = 0) override;
+                      
     //! @}
     // =========================================================================
 

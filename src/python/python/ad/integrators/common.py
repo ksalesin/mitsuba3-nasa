@@ -128,7 +128,7 @@ class ADIntegrator(mi.CppADIntegrator):
            and returns a single Spectrum value. """
 
         if thread_count != 0:
-            mi.set_thread_count(thread_count)
+            mi.Thread.set_thread_count(thread_count)
 
         if isinstance(sensor, int):
             sensor = scene.sensors()[sensor]

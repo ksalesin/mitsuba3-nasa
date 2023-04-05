@@ -153,6 +153,22 @@ public:
             return AdjointIntegrator::render(scene, sensor, seed, spp, develop, evaluate);
     }
 
+    Spectrum render_1(Scene *scene,
+                    Sensor *sensor,
+                    uint32_t seed,
+                    uint32_t spp,
+                    bool develop,
+                    bool evaluate,
+                    size_t thread_count) override {
+        py::gil_scoped_acquire gil;
+        py::function render_override = py::get_override(this, "render_1");
+
+        if (render_override)
+            return render_override(scene, sensor, seed, spp, develop, evaluate, thread_count).template cast<Spectrum>();
+        else
+            return AdjointIntegrator::render_1(scene, sensor, seed, spp, develop, evaluate, thread_count);
+    }
+
     void sample(const Scene *scene, const Sensor *sensor, Sampler *sampler,
                 ImageBlock *block, ScalarFloat sample_scale) const override {
         py::gil_scoped_acquire gil;

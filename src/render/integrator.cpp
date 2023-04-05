@@ -1143,6 +1143,17 @@ AdjointIntegrator<Float, Spectrum>::render(Scene *scene,
     return result;
 }
 
+MI_VARIANT Spectrum 
+AdjointIntegrator<Float, Spectrum>::render_1(Scene *scene,
+                                              Sensor *sensor,
+                                              uint32_t seed,
+                                              uint32_t spp,
+                                              bool /* develop */,
+                                              bool evaluate,
+                                              size_t thread_count) {
+    NotImplementedError("render_1");
+}
+
 // -----------------------------------------------------------------------------
 
 MI_IMPLEMENT_CLASS_VARIANT(Integrator, Object, "integrator")
