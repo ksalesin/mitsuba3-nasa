@@ -147,11 +147,11 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
                 L[:, i] = 0
 
             active &= dr.any(dr.neq(mi.unpolarized_spectrum(throughput), 0.0))
-            q = dr.minimum(dr.max(mi.unpolarized_spectrum(throughput)) * dr.sqr(η), 0.99)
-            perform_rr = (depth > self.rr_depth)
-            active &= (sampler.next_1d(active) < q) | ~perform_rr
-            throughput[perform_rr] = throughput @ mi.Spectrum(dr.rcp(q))
-
+            # q = dr.minimum(dr.max(mi.unpolarized_spectrum(throughput)) * dr.sqr(η), 0.99)
+            # perform_rr = (depth > self.rr_depth)
+            # active &= (sampler.next_1d(active) < q) | ~perform_rr
+            # throughput[perform_rr] = throughput @ mi.Spectrum(dr.rcp(q))
+            
             active_medium = active & dr.neq(medium, None) # TODO this is not necessary
             active_surface = active & ~active_medium
 
@@ -170,10 +170,10 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
                 mei.t[active_medium & (si.t < mei.t)] = dr.inf
 
                 # Evaluate ratio of transmittance and free-flight PDF
-                tr, free_flight_pdf = medium.eval_tr_and_pdf(mei, si, active_medium)
-                tr_pdf = index_spectrum(free_flight_pdf, channel)
+                # tr, free_flight_pdf = medium.eval_tr_and_pdf(mei, si, active_medium)
+                # tr_pdf = index_spectrum(free_flight_pdf, channel)
                 weight = mi.Spectrum(1.0)
-                weight[active_medium] = weight @ mi.Spectrum(dr.select(tr_pdf > 0.0, tr / dr.detach(tr_pdf), 0.0))
+                # weight[active_medium] = weight @ mi.Spectrum(dr.select(tr_pdf > 0.0, tr / dr.detach(tr_pdf), 0.0))
 
                 escaped_medium = active_medium & ~mei.is_valid()
                 active_medium &= mei.is_valid()
@@ -198,7 +198,8 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
                     ray.o[act_null_scatter] = dr.detach(mei.p)
                     si.t[act_null_scatter] = si.t - dr.detach(mei.t)
 
-                weight[act_medium_scatter] = weight @ mi.Spectrum(mei.sigma_s / dr.detach(scatter_prob))
+                weight[act_medium_scatter] = weight @ mi.Spectrum(mei.sigma_s / mei.sigma_t)
+                # weight[act_medium_scatter] = weight @ mi.Spectrum(mei.sigma_s / dr.detach(scatter_prob))
                 throughput[active_medium] = throughput @ mi.Spectrum(dr.detach(weight))
 
                 mei = dr.detach(mei)
@@ -212,6 +213,31 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
                 phase[~act_medium_scatter] = dr.zeros(mi.PhaseFunctionPtr)
 
                 valid_ray |= act_medium_scatter
+
+                if self.use_nee:
+                    sample_emitters = mei.medium.use_emitter_sampling()
+                    specular_chain &= ~act_medium_scatter
+                    specular_chain |= act_medium_scatter & ~sample_emitters
+                    active_e_medium = act_medium_scatter & sample_emitters
+                    
+                    nee_sampler = sampler if is_primal else sampler.clone()
+                    emitted, ds = self.sample_emitter(mei, scene, sampler, 
+                        medium, channel, refractive_bsdf, active_e_medium, mode=dr.ADMode.Primal)
+                    
+                    # Query the phase function for that emitter-sampled direction
+                    phase_wo = mei.to_local(ds.d)
+                    phase_val_nee = phase.eval(phase_ctx, mei, phase_wo, active_e_medium)
+                    phase_val_nee = mei.to_world_mueller(phase_val_nee, -phase_wo, mei.wi)
+
+                    # Calculate NEE contribution to final radiance value
+                    contrib = throughput @ phase_val_nee @ emitted
+                    L[active_e_medium] += dr.detach(contrib if is_primal else -contrib)
+
+                    if not is_primal:
+                        self.sample_emitter(mei, scene, nee_sampler,
+                            medium, channel, refractive_bsdf, active_e_medium, adj_emitted=contrib, δL=δL, mode=mode)
+                        if dr.grad_enabled(nee_weight) or dr.grad_enabled(emitted):
+                            dr.backward(δL @ contrib)
 
                 with dr.suspend_grad():
                     wo, phase_val = phase.sample(phase_ctx, mei, sampler.next_1d(act_medium_scatter), sampler.next_2d(act_medium_scatter), act_medium_scatter)
@@ -234,45 +260,31 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
                 # --------------------- Emitter sampling ---------------------
                 if self.use_nee:
                     active_e_surface = active_surface & mi.has_flag(bsdf.flags(), mi.BSDFFlags.Smooth) & (depth + 1 < self.max_depth)
-                    sample_emitters = mei.medium.use_emitter_sampling()
-                    specular_chain &= ~act_medium_scatter
-                    specular_chain |= act_medium_scatter & ~sample_emitters
-                    active_e_medium = act_medium_scatter & sample_emitters
-                    active_e = active_e_surface | active_e_medium
-                    
-                    ref_interaction = dr.zeros(mi.Interaction3f)
-                    ref_interaction[act_medium_scatter] = mei
-                    ref_interaction[active_surface] = si
                     
                     # Hacky way to check if this is the refractive BSDF (since we know there is only one)
                     refractive = mi.has_flag(bsdf.flags(), mi.BSDFFlags.DeltaTransmission) | mi.has_flag(bsdf.flags(), mi.BSDFFlags.GlossyTransmission)
                     reflect_e = active_e_surface & refractive & (si.wi.z > 0)
                     
                     nee_sampler = sampler if is_primal else sampler.clone()
-                    emitted, ds = self.sample_emitter(ref_interaction, scene, sampler, 
-                        medium, channel, refractive_bsdf, active_e, mode=dr.ADMode.Primal)
+                    emitted, ds = self.sample_emitter(si, scene, sampler, 
+                        medium, channel, refractive_bsdf, active_e_surface, mode=dr.ADMode.Primal)
                     
                     # Query the BSDF for that emitter-sampled direction
                     bsdf_wo = si.to_local(ds.d)
-                    bsdf_val = bsdf.eval(ctx, si, bsdf_wo, reflect_e)
-                    bsdf_val = si.to_world_mueller(bsdf_val, -bsdf_wo, si.wi)
+                    bsdf_val_nee = bsdf.eval(ctx, si, bsdf_wo, reflect_e)
+                    bsdf_val_nee = si.to_world_mueller(bsdf_val_nee, -bsdf_wo, si.wi)
 
                     # Only evaluate if this is a surface reflection
-                    bsdf_val = dr.select(reflect_e, bsdf_val, 0.0)
-
-                    # Query the phase function for that emitter-sampled direction
-                    phase_wo = mei.to_local(ds.d)
-                    phase_val = phase.eval(phase_ctx, mei, phase_wo, active_e_medium)
-                    phase_val = mei.to_world_mueller(phase_val, -phase_wo, mei.wi)
+                    bsdf_val_nee = dr.select(reflect_e, bsdf_val_nee, 0.0)
+                    # bsdf_val_nee = mi.Spectrum(0.0)
 
                     # Calculate NEE contribution to final radiance value
-                    nee_weight = mi.Spectrum(dr.select(active_e_surface, bsdf_val, phase_val))
-                    contrib = throughput @ nee_weight @ emitted
-                    L[active_e] += dr.detach(contrib if is_primal else -contrib)
+                    contrib = throughput @ bsdf_val_nee @ emitted
+                    L[active_e_surface] += dr.detach(contrib if is_primal else -contrib)
 
                     if not is_primal:
-                        self.sample_emitter(ref_interaction, scene, nee_sampler,
-                            medium, channel, refractive_bsdf, active_e, adj_emitted=contrib, δL=δL, mode=mode)
+                        self.sample_emitter(si, scene, nee_sampler,
+                            medium, channel, refractive_bsdf, active_e_surface, adj_emitted=contrib, δL=δL, mode=mode)
                         if dr.grad_enabled(nee_weight) or dr.grad_enabled(emitted):
                             dr.backward(δL @ contrib)
 
@@ -342,29 +354,29 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
 
         emitter_d = dr.normalize(ds.d)
 
-        has_refractive_bsdf = active & dr.neq(refractive_bsdf, None)
+        # has_refractive_bsdf = active & dr.neq(refractive_bsdf, None)
 
         # If there is a refractive BSDF between this interaction and the sensor,
         # pick a direction that will refract to the emitter direction
-        ctx = mi.BSDFContext()
-        ctx.type_mask = mi.BSDFFlags.GlossyTransmission | mi.BSDFFlags.DeltaTransmission
+        # ctx = mi.BSDFContext()
+        # ctx.type_mask = mi.BSDFFlags.GlossyTransmission | mi.BSDFFlags.DeltaTransmission
 
-        si = dr.zeros(mi.SurfaceInteraction3f)
-        si.wi = emitter_d
+        # si = dr.zeros(mi.SurfaceInteraction3f)
+        # si.wi = emitter_d
 
-        bs, bsdf_val = refractive_bsdf.sample(ctx, si, sampler.next_1d(has_refractive_bsdf),
-                                              sampler.next_2d(has_refractive_bsdf), has_refractive_bsdf)
+        # bs, bsdf_val = refractive_bsdf.sample(ctx, si, sampler.next_1d(has_refractive_bsdf),
+        #                                       sampler.next_2d(has_refractive_bsdf), has_refractive_bsdf)
         # ** Note **: this epsilon value can have a non-negligible effect on the final radiance estimate
-        valid_sample = mi.Bool(True)
-        valid_sample[has_refractive_bsdf] = bs.pdf > mi.Float(1e-53)
+        # valid_sample = mi.Bool(True)
+        # valid_sample[has_refractive_bsdf] = bs.pdf > mi.Float(1e-53)
 
         # Assumes surface normal is (0, 0, 1) in world space
         # ds_tmp = mi.DirectionSample3f(ds)
         # ds_tmp.d = -bs.wo
 
-        emitter_val[has_refractive_bsdf & ~valid_sample] = 0.0
-        ds.d[has_refractive_bsdf & valid_sample] = -bs.wo
-        emitter_val[has_refractive_bsdf & valid_sample] = emitter_val @ mi.Spectrum(dr.rcp(bs.pdf))
+        # emitter_val[has_refractive_bsdf & ~valid_sample] = 0.0
+        # ds.d[has_refractive_bsdf & valid_sample] = -bs.wo
+        # emitter_val[has_refractive_bsdf & valid_sample] = emitter_val @ mi.Spectrum(dr.rcp(bs.pdf))
 
         ray = ref_interaction.spawn_ray(ds.d)
         total_dist = mi.Float(0.0)
@@ -396,11 +408,14 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
             tr_multiplier = mi.Spectrum(1.0)
 
             # Special case for homogeneous media: directly advance to the next surface / end of the segment
-            if self.nee_handle_homogeneous:
-                active_homogeneous = active_medium & medium.is_homogeneous()
-                mei.t[active_homogeneous] = dr.minimum(remaining_dist, si.t)
-                tr_multiplier[active_homogeneous] = medium.eval_tr_and_pdf(mei, si, active_homogeneous)[0]
-                mei.t[active_homogeneous] = dr.inf
+            # if self.nee_handle_homogeneous:
+            #     active_homogeneous = active_medium & medium.is_homogeneous()
+            #     mei.t[active_homogeneous] = dr.minimum(remaining_dist, si.t)
+            #     tr_multiplier[active_homogeneous] = medium.eval_tr_and_pdf(mei, si, active_homogeneous)[0]
+            #     mei.t[active_homogeneous] = dr.inf
+
+            total_dist[active_medium & (mei.t > remaining_dist) & mei.is_valid()] = ds.dist
+            mei.t[active_medium & (mei.t > remaining_dist)] = dr.inf
 
             escaped_medium = active_medium & ~mei.is_valid()
 
@@ -410,26 +425,30 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
             si.t[active_medium] = dr.detach(si.t - mei.t)
             tr_multiplier[active_medium] = tr_multiplier @ mi.Spectrum(mei.sigma_n / mei.combined_extinction)
 
+            total_dist[active_medium] += mei.t
+
             # Handle interactions with surfaces
             active_surface |= escaped_medium
-            active_surface &= si.is_valid() & ~active_medium
+            active_surface &= si.is_valid() & active & ~active_medium
             bsdf = si.bsdf(ray)
             wo = si.to_local(emitter_d)
 
-            is_null = active_surface & mi.has_flag(bsdf.flags(), mi.BSDFFlags.Null)
-            not_null = active_surface & ~is_null
+            total_dist[active_surface] += si.t
 
-            bsdf_val_null = bsdf.eval_null_transmission(si, is_null)
+            # is_null = active_surface & mi.has_flag(bsdf.flags(), mi.BSDFFlags.Null)
+            # not_null = active_surface & ~is_null
+
+            bsdf_val_null = bsdf.eval_null_transmission(si, active_surface)
             bsdf_val_null = si.to_world_mueller(bsdf_val_null, si.wi, si.wi)
-            tr_multiplier[is_null] = tr_multiplier @ bsdf_val_null
+            tr_multiplier[active_surface] = tr_multiplier @ bsdf_val_null
 
             # Handle the refractive BSDF
-            bsdf_val = bsdf.eval(ctx, si, wo, not_null)
-            bsdf_val = si.to_world_mueller(bsdf_val, -wo, si.wi)
-            tr_multiplier[not_null] = tr_multiplier @ bsdf_val
+            # bsdf_val = bsdf.eval(ctx, si, wo, not_null)
+            # bsdf_val = si.to_world_mueller(bsdf_val, -wo, si.wi)
+            # tr_multiplier[not_null] = tr_multiplier @ bsdf_val
 
             # Change ray direction since refraction occurred
-            ray.d[not_null] = emitter_d
+            # ray.d[not_null] = emitter_d
 
             if not is_primal and dr.grad_enabled(tr_multiplier):
                 active_adj = (active_surface | active_medium) & (mi.unpolarized_spectrum(tr_multiplier) > 0.0)
@@ -446,13 +465,13 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
 
             # Continue tracing through scene if non-zero weights exist
             active &= (active_medium | active_surface) & dr.any(dr.neq(mi.unpolarized_spectrum(transmittance), 0.0))
-            total_dist[active] += dr.select(active_medium, mei.t, si.t)
+            # total_dist[active] += dr.select(active_medium, mei.t, si.t)
 
             # If a medium transition is taking place: Update the medium pointer
             has_medium_trans = active_surface & si.is_medium_transition()
             medium[has_medium_trans] = si.target_medium(ray.d)
 
-        return emitter_val @ transmittance, ds
+        return transmittance @ emitter_val, ds
 
     def to_string(self):
         return f'PRBVolpathAOSIntegrator[max_depth = {self.max_depth}]'
