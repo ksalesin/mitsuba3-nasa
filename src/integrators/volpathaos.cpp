@@ -289,6 +289,7 @@ public:
             }
             active &= (active_surface | active_medium);
         }
+        
         return { result, valid_ray };
     }
 
