@@ -12,9 +12,12 @@ SHAPE_ORDERING = [
     'obj',
     'ply',
     'serialized',
+    'cube'
     'sphere',
-    'cylinder',
     'disk',
+    'cylinder',
+    'bsplinecurve',
+    'linearcurve',
     'rectangle',
     'shapegroup',
     'instance'
