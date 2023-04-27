@@ -238,7 +238,7 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
                     if not is_primal:
                         self.sample_emitter(mei, scene, nee_sampler,
                             medium, channel, refractive_bsdf, active_e_medium, adj_emitted=contrib, δL=δL, mode=mode)
-                        if dr.grad_enabled(nee_weight) or dr.grad_enabled(emitted):
+                        if dr.grad_enabled(phase_val) or dr.grad_enabled(emitted):
                             dr.backward(δL @ contrib)
 
                 with dr.suspend_grad():
@@ -264,10 +264,11 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
                 # --------------------- Emitter sampling ---------------------
                 if self.use_nee:
                     active_e_surface = active_surface & mi.has_flag(bsdf.flags(), mi.BSDFFlags.Smooth) & (depth + 1 < self.max_depth)
+                    diffuse = mi.has_flag(bsdf.flags(), mi.BSDFFlags.DiffuseReflection)
 
                     # Hacky way to check if this is the refractive BSDF (since we know there is only one)
                     refractive = mi.has_flag(bsdf.flags(), mi.BSDFFlags.DeltaTransmission) | mi.has_flag(bsdf.flags(), mi.BSDFFlags.GlossyTransmission)
-                    reflect_e = active_e_surface & refractive & (si.wi.z > 0)
+                    reflect_e = active_e_surface & (diffuse | (refractive & (si.wi.z > 0)))
                     
                     nee_sampler = sampler if is_primal else sampler.clone()
                     emitted, ds = self.sample_emitter(si, scene, sampler, 
@@ -288,7 +289,7 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
                     if not is_primal:
                         self.sample_emitter(si, scene, nee_sampler,
                             medium, channel, refractive_bsdf, active_e_surface, adj_emitted=contrib, δL=δL, mode=mode)
-                        if dr.grad_enabled(nee_weight) or dr.grad_enabled(emitted):
+                        if dr.grad_enabled(bsdf_val) or dr.grad_enabled(emitted):
                             dr.backward(δL @ contrib)
 
                 # ----------------------- BSDF sampling ----------------------
@@ -340,6 +341,7 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
                 active &= (active_surface | active_medium)
         
         return L if is_primal else δL, valid_ray, L
+
 
     def sample_emitter(self, ref_interaction, scene, sampler, medium, channel,
                        refractive_bsdf, active, adj_emitted=None, δL=None, mode=None):

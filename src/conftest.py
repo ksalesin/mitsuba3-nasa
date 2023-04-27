@@ -105,6 +105,9 @@ any_llvm_rgb = 'llvm_rgb' if 'llvm_rgb' in variants else 'llvm_ad_rgb'
 any_cuda_rgb = 'cuda_rgb' if 'cuda_rgb' in variants else 'cuda_ad_rgb'
 any_llvm_spectral = 'llvm_spectral' if 'llvm_spectral' in variants else 'llvm_ad_spectral'
 any_cuda_spectral = 'cuda_spectral' if 'cuda_spectral' in variants else 'cuda_ad_spectral'
+any_ad_polarized = next((x for x in variants if x.endswith('ad_mono_polarized') \
+                                             or x.endswith('ad_spectral_polarized')), \
+                                             'llvm_ad_spectral_polarized')
 
 variant_groups = {
     'any_scalar' : [any_scalar],
@@ -122,6 +125,7 @@ variant_groups = {
     'vec_spectral' : [x for x in variants if x.endswith('spectral') and not x.startswith('scalar')],
     'all_ad_rgb' : [x for x in variants if x.endswith('ad_rgb')],
     'all_ad_spectral' : [x for x in variants if x.endswith('ad_spectral')],
+    'any_ad_polarized': [any_ad_polarized]
 }
 
 del variants

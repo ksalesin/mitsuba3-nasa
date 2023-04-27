@@ -635,18 +635,12 @@ SamplingIntegrator<Float, Spectrum>::render_1(Scene *scene,
             for (size_t y = 0; y < film_size.y(); y++) {
                 UInt32 index = dr::fmadd(y, film_size.x(), x) * n_channels;
                 for (size_t k = 0; k < n_channels; k++) {
-                    // auto tmp = dr::gather<Float>(data, index);
-                    // Log(Warn, "tmp (%s,%s,%s): %s", x, y, k, tmp);
                     result[k] += dr::gather<Float>(data, index);
                     index++;
                 }
             }
         }
     }
-
-    // Log(Warn, "spp_per_pass: %s", spp_per_pass);
-    // Log(Warn, "total_samples_done: %s", total_samples_done);
-    // Log(Warn, "n_pixels: %s", n_pixels);
 
     // Normalize by true number of samples
     ScalarFloat nf = dr::rcp((float) n_pixels * total_samples_done);
@@ -760,8 +754,6 @@ SamplingIntegrator<Float, Spectrum>::render_sample(const Scene *scene,
     Vector2f sample_pos   = pos + sampler->next_2d(active),
              adjusted_pos = dr::fmadd(sample_pos, scale, offset);
 
-    // Vector2f sample_pos = pos, adjusted_pos = pos;
-
     Point2f aperture_sample(.5f);
     if (sensor->needs_aperture_sample())
         aperture_sample = sampler->next_2d(active);
@@ -784,7 +776,7 @@ SamplingIntegrator<Float, Spectrum>::render_sample(const Scene *scene,
 
     auto [spec, valid] = sample(scene, sampler, ray, medium,
                aovs + (has_alpha ? 5 : 4) /* skip R,G,B,[A],W */, active);
-    // `aovs + 5` would need to be changed for 'radiance' or 'iquv' modes if there were other AOVs
+    // `aovs + 5` would need to be changed if there were other AOVs
 
     UnpolarizedSpectrum spec_u = unpolarized_spectrum(ray_weight * spec);
 

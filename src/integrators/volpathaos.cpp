@@ -230,10 +230,13 @@ public:
                 Mask active_e = active_surface && has_flag(bsdf->flags(), BSDFFlags::Smooth) && (depth + 1 < (uint32_t) m_max_depth);
 
                 if (likely(dr::any_or<true>(active_e))) {
+                    Mask diffuse    = has_flag(bsdf->flags(), BSDFFlags::DiffuseReflection);
+
                     // Hacky way to check if this is the refractive BSDF (since we know there is only one)
                     Mask refractive = has_flag(bsdf->flags(), BSDFFlags::DeltaTransmission) || 
                                       has_flag(bsdf->flags(), BSDFFlags::GlossyTransmission);
-                    Mask reflect_e = active_e && refractive && si.wi.z() > 0;
+
+                    Mask reflect_e = active_e && (diffuse || (refractive && si.wi.z() > 0));
 
                     // Only evaluate if this is a surface reflection
                     if (dr::any_or<true>(reflect_e)) {

@@ -159,21 +159,16 @@ class ADIntegrator(mi.CppADIntegrator):
                 active=mi.Bool(True)
             )
 
-            # print(f'L -> ({type(L)}, shape: {dr.shape(L)}) {L}')
-
             film = sensor.film()
             film_size = film.crop_size()
             n_wavelengths = len(ray.wavelengths)
 
             # Rotate Stokes reference frames if polarized
-            # if mi.is_polarized:
-            #     L = self.to_sensor_mueller(sensor, ray, L)
+            if mi.is_polarized:
+                L = self.to_sensor_mueller(sensor, ray, L)
 
             # Accumulate final spectrum
             self.primal_spectrum = mi.Spectrum(0.0)
-
-            # print(f'self.primal_spectrum -> ({type(self.primal_spectrum)}, \
-            #         shape: {dr.shape(self.primal_spectrum)}) {self.primal_spectrum}')
 
             if mi.is_monochromatic:
                 if mi.is_polarized:
@@ -201,9 +196,6 @@ class ADIntegrator(mi.CppADIntegrator):
             else:
                 self.primal_spectrum *= nf
 
-            # print(f'self.primal_spectrum -> ({type(self.primal_spectrum)}, \
-            #         shape: {dr.shape(self.primal_spectrum)}) {self.primal_spectrum}')
-
             # Explicitly delete any remaining unused variables
             del sampler, ray, weight, pos, L, valid
             gc.collect()
@@ -217,6 +209,28 @@ class ADIntegrator(mi.CppADIntegrator):
         """ The Stokes vector that comes from the integrator is still aligned
             with the implicit Stokes frame used for the ray direction. Apply
             one last rotation here s.t. it matches that in [Chowdhary et al. 2020]. """
+        current_basis = mi.mueller.stokes_basis(-ray.d)
+        vertical = mi.Vector3f(0.0, 0.0, 1.0)
+        tmp = dr.cross(-ray.d, vertical)
+
+        # Ray is pointing straight along vertical
+        ray_is_vertical = dr.norm(tmp) < mi.Float(1e-12)
+
+        target_basis = mi.Vector3f(0.0, 0.0, 0.0)
+        target_basis[ ray_is_vertical] = mi.Vector3f(1.0, 0.0, 0.0)
+        target_basis[~ray_is_vertical] = dr.cross(-ray.d, dr.normalize(tmp))
+
+        spec2sensor = mi.mueller.rotate_stokes_basis(-ray.d,
+                                                      current_basis,
+                                                      target_basis)
+
+        return mi.Spectrum(spec2sensor) @ spec
+    
+    def from_sensor_mueller(self: mi.SamplingIntegrator, 
+                          sensor: mi.Sensor, 
+                          ray: mi.Ray3f, 
+                          spec: mi.Spectrum) -> mi.Spectrum:
+        """ TODO: Inverse of to_sensor_mueller (needed for backpropagation of gradients). """
         current_basis = mi.mueller.stokes_basis(-ray.d)
         vertical = mi.Vector3f(0.0, 0.0, 1.0)
         tmp = dr.cross(-ray.d, vertical)
@@ -1141,8 +1155,8 @@ class RBIntegrator(ADIntegrator):
             n_wavelengths = len(ray.wavelengths)
 
             # Rotate Stokes reference frames if polarized
-            # if mi.is_polarized:
-            #     L = self.to_sensor_mueller(sensor, ray, L)
+            if mi.is_polarized:
+                L = self.to_sensor_mueller(sensor, ray, L)
 
             # Accumulate and normalize final spectrum
             spectrum = mi.Spectrum(0.0)
@@ -1199,7 +1213,9 @@ class RBIntegrator(ADIntegrator):
                 dr.traverse(mi.Float, dr.ADMode.Backward)
                 δL = dr.grad(L)
 
-                # print(f'δL -> ({type(δL)}, shape: {dr.shape(δL)}) {δL}')
+            # TODO: Inverse rotation of Stokes reference frames if polarized
+            # if mi.is_polarized:
+            #     L = self.to_sensor_mueller(sensor, ray, L)
 
             # Launch Monte Carlo sampling in backward AD mode (2)
             L_2, valid_2, state_out_2 = self.sample(
