@@ -109,10 +109,10 @@ public:
             // solid angle compression at refractive index boundaries. Stop with at least some
             // probability to avoid  getting stuck (e.g. due to total internal reflection)
             active &= dr::any(dr::neq(unpolarized_spectrum(throughput), 0.f));
-            // Float q = dr::minimum(dr::max(unpolarized_spectrum(throughput)) * dr::sqr(eta), .95f);
-            // Mask perform_rr = (depth > (uint32_t) m_rr_depth);
-            // active &= sampler->next_1d(active) < q || !perform_rr;
-            // dr::masked(throughput, perform_rr) *= dr::rcp(dr::detach(q));
+            Float q = dr::minimum(dr::max(unpolarized_spectrum(throughput)) * dr::sqr(eta), .95f);
+            Mask perform_rr = (depth > (uint32_t) m_rr_depth);
+            active &= sampler->next_1d(active) < q || !perform_rr;
+            dr::masked(throughput, perform_rr) *= dr::rcp(dr::detach(q));
 
             active &= depth < (uint32_t) m_max_depth;
             if (dr::none_or<false>(active))

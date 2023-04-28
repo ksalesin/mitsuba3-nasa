@@ -74,11 +74,11 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
         self.is_prepared = False
 
         if mi.is_rgb:
-            raise Exception('PRBPolarizedIntegrator can only be used in'
+            raise Exception('PRBVolpathAOSIntegrator can only be used in'
                             'monochromatic or spectral mode!')
 
         if not mi.is_polarized:
-            raise Exception('PRBPolarizedIntegrator can only be used in'
+            raise Exception('PRBVolpathAOSIntegrator can only be used in'
                             'polarized mode!')
 
     def prepare_scene(self, scene):
@@ -147,10 +147,10 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
                 L[:, i] = 0
 
             active &= dr.any(dr.neq(mi.unpolarized_spectrum(throughput), 0.0))
-            # q = dr.minimum(dr.max(mi.unpolarized_spectrum(throughput)) * dr.sqr(η), 0.99)
-            # perform_rr = (depth > self.rr_depth)
-            # active &= (sampler.next_1d(active) < q) | ~perform_rr
-            # throughput[perform_rr] = throughput @ mi.Spectrum(dr.rcp(q))
+            q = dr.minimum(dr.max(mi.unpolarized_spectrum(throughput)) * dr.sqr(η), 0.99)
+            perform_rr = (depth > self.rr_depth)
+            active &= (sampler.next_1d(active) < q) | ~perform_rr
+            throughput[perform_rr] = throughput @ mi.Spectrum(dr.rcp(q))
 
             active_medium = active & dr.neq(medium, None) # TODO this is not necessary
             active_surface = active & ~active_medium
@@ -242,11 +242,14 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
                             dr.backward(δL @ contrib)
 
                 with dr.suspend_grad():
-                    wo, phase_val = phase.sample(phase_ctx, mei, sampler.next_1d(act_medium_scatter), sampler.next_2d(act_medium_scatter), act_medium_scatter)
-                phase_val = mei.to_world_mueller(phase_val, -wo, mei.wi)
-                phase_pdf = phase.pdf(phase_ctx, mei, wo, act_medium_scatter)
-                act_medium_scatter &= phase_pdf > 0.0
-                throughput[act_medium_scatter] = throughput @ phase_val
+                    wo, phase_weight = phase.sample(phase_ctx, mei, sampler.next_1d(act_medium_scatter), sampler.next_2d(act_medium_scatter), act_medium_scatter)
+                    phase_weight = mei.to_world_mueller(phase_weight, -wo, mei.wi)
+                    phase_pdf = phase.pdf(phase_ctx, mei, wo, act_medium_scatter)
+                    act_medium_scatter &= phase_pdf > 0.0
+
+                # TODO: Should we add the same derivative propagation block here as below the BSDF sampling step?
+
+                throughput[act_medium_scatter] = throughput @ phase_weight
                 
                 new_ray = mei.spawn_ray(mei.to_world(wo))
                 ray[act_medium_scatter] = new_ray
@@ -284,11 +287,11 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
 
                     # Calculate NEE contribution to final radiance value
                     contrib = throughput @ bsdf_val @ emitted
-                    L[active_e_surface] += dr.detach(contrib if is_primal else -contrib)
+                    L[reflect_e] += dr.detach(contrib if is_primal else -contrib)
 
                     if not is_primal:
                         self.sample_emitter(si, scene, nee_sampler,
-                            medium, channel, refractive_bsdf, active_e_surface, adj_emitted=contrib, δL=δL, mode=mode)
+                            medium, channel, refractive_bsdf, reflect_e, adj_emitted=contrib, δL=δL, mode=mode)
                         if dr.grad_enabled(bsdf_val) or dr.grad_enabled(emitted):
                             dr.backward(δL @ contrib)
 
@@ -369,8 +372,10 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
         si = dr.zeros(mi.SurfaceInteraction3f)
         si.wi = emitter_d
 
-        bs, bsdf_val = refractive_bsdf.sample(ctx, si, sampler.next_1d(has_refractive_bsdf),
-                                              sampler.next_2d(has_refractive_bsdf), has_refractive_bsdf)
+        with dr.suspend_grad():
+            bs, bsdf_val = refractive_bsdf.sample(ctx, si, sampler.next_1d(has_refractive_bsdf),
+                                                sampler.next_2d(has_refractive_bsdf), has_refractive_bsdf)
+        
         # ** Note **: this epsilon value can have a non-negligible effect on the final radiance estimate
         valid_sample = mi.Bool(True)
         valid_sample[has_refractive_bsdf] = bs.pdf > mi.Float(1e-53)

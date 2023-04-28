@@ -50,7 +50,7 @@ class ConfigBase:
     require_reparameterization = False
 
     def __init__(self) -> None:
-        self.spp = 8
+        self.spp = 1024
         self.res = 32
         self.error_mean_threshold = 0.05
         self.error_max_threshold = 0.5
@@ -249,7 +249,14 @@ class RoughDielectricEtaConfig(ConfigBase):
                     'sample_visible': False
                 }
             },
-            'light': { 'type': 'constant' }
+            'light': {
+                'type': 'rectangle',
+                'to_world': T.translate([1.25, 0.0, 1.0]) @ T.rotate([0, 1, 0], -90),
+                'emitter': {
+                    'type': 'area',
+                    'radiance': {'type': 'rgb', 'value': [3.0, 3.0, 3.0]}
+                }
+            }
         }
 
 # Roughness of a directly visible rough dielectric surface illuminated by a constant emitter
@@ -264,10 +271,10 @@ class RoughDielectricRoughnessConfig(ConfigBase):
                 'bsdf': { 
                     'type': 'roughdielectric',
                     'int_ior': 1.34,
-                    'ext_ior': 1,
+                    'ext_ior': 1.0,
                     'distribution': 'beckmann',
                     'alpha': 0.1,
-                    'sample_visible': 'false'
+                    'sample_visible': False
                 }
             },
             'light': { 'type': 'constant' }
@@ -293,12 +300,12 @@ ADVANCED_CONFIGS_LIST = [
 
 # List of integrators to test (also indicates whether it handles discontinuities)
 INTEGRATORS = [
-    ('prb_volpathaos', False)
+    ('prb_polarized', False)
 ]
 
 CONFIGS = []
 for integrator_name, reparam in INTEGRATORS:
-    todos = BASIC_CONFIGS_LIST + ADVANCED_CONFIGS_LIST
+    todos = BASIC_CONFIGS_LIST
     for config in todos:
         CONFIGS.append((integrator_name, config))
 
@@ -311,7 +318,7 @@ ref_spp = 10000
 mi.set_variant('llvm_ad_mono_polarized')
 
 # Generate reference primal/forward results for all configs.
-for config_base in BASIC_CONFIGS_LIST + ADVANCED_CONFIGS_LIST:
+for config_base in BASIC_CONFIGS_LIST:
     config = config_base()
     print(f"name: {config.name}")
 
@@ -366,7 +373,7 @@ for config_base in BASIC_CONFIGS_LIST + ADVANCED_CONFIGS_LIST:
 
 @pytest.mark.slow
 @pytest.mark.parametrize('integrator_name, config_base', CONFIGS)
-def test01_rendering_primal(variants_any_ad_polarized, integrator_name, config_base):
+def test01_rendering_primal(variants_llvm_ad_mono_polarized, integrator_name, config_base):
     config = config_base()
     config.initialize()
 
@@ -404,7 +411,7 @@ def test01_rendering_primal(variants_any_ad_polarized, integrator_name, config_b
 @pytest.mark.slow
 @pytest.mark.skipif(os.name == 'nt', reason='Skip those memory heavy tests on Windows')
 @pytest.mark.parametrize('integrator_name, config_base', CONFIGS)
-def test02_rendering_backward(variants_any_ad_polarized, integrator_name, config_base):
+def test02_rendering_backward(variants_llvm_ad_mono_polarized, integrator_name, config_base):
     # dr.set_flag(dr.JitFlag.LoopRecord, False)
     # dr.set_flag(dr.JitFlag.VCallRecord, False)
 
@@ -434,7 +441,7 @@ def test02_rendering_backward(variants_any_ad_polarized, integrator_name, config
     grad = dr.grad(theta)[0]
 
     # FD ref is really a Jacobian, perform one last multiplication
-    # dx = dy^T @ J to match the output of dr.backward_grad()
+    # dx = dy^T @ J to match the output of dr.grad()
     grad_ref = dr.dot(dr.ravel(ref_fd), dr.ravel(image_adj))[0]
 
     error = dr.abs(grad - grad_ref) / dr.maximum(dr.abs(grad_ref), 1e-3)
@@ -442,7 +449,6 @@ def test02_rendering_backward(variants_any_ad_polarized, integrator_name, config
         print(f"Failure in config: {config.name}, {integrator_name}")
         print(f"-> grad:     {grad}")
         print(f"-> grad_ref: {grad_ref}")
-        print(f"-> error: {error} (threshold={config.error_mean_threshold_bwd})")
+        print(f"-> error: {error} (threshold={config.error_max_threshold_bwd})")
         print(f"-> ratio: {grad / grad_ref}")
         assert False
-

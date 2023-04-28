@@ -125,7 +125,8 @@ variant_groups = {
     'vec_spectral' : [x for x in variants if x.endswith('spectral') and not x.startswith('scalar')],
     'all_ad_rgb' : [x for x in variants if x.endswith('ad_rgb')],
     'all_ad_spectral' : [x for x in variants if x.endswith('ad_spectral')],
-    'any_ad_polarized': [any_ad_polarized]
+    'any_ad_polarized': [any_ad_polarized],
+    'llvm_ad_mono_polarized': ['llvm_ad_mono_polarized']
 }
 
 del variants
