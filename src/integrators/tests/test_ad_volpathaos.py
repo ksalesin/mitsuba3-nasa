@@ -277,7 +277,163 @@ class RoughDielectricRoughnessConfig(ConfigBase):
                     'sample_visible': False
                 }
             },
-            'light': { 'type': 'constant' }
+            'light': {
+                'type': 'rectangle',
+                'to_world': T.translate([1.25, 0.0, 1.0]) @ T.rotate([0, 1, 0], -90),
+                'emitter': {
+                    'type': 'area',
+                    'radiance': {'type': 'rgb', 'value': [3.0, 3.0, 3.0]}
+                }
+            }
+        }
+
+# Relative index of refraction of a directly visible rough dielectric surface illuminated by a directional emitter
+class RoughDielectricEtaDirectionalConfig(ConfigBase):
+    def __init__(self) -> None:
+        super().__init__()
+        self.key = 'plane.bsdf.eta'
+        self.scene_dict = {
+            'type': 'scene',
+            'plane': {
+                'type': 'rectangle',
+                'bsdf': { 
+                    'type': 'roughdielectric',
+                    'int_ior': 1.34,
+                    'ext_ior': 1.0,
+                    'distribution': 'beckmann',
+                    'alpha': 0.1,
+                    'sample_visible': False
+                }
+            },
+            'emitter': {
+                'type': 'directional',
+                'direction': [-0.5, 0, -0.866],
+                'irradiance': 1.0
+            }
+        }
+
+# Roughness of a directly visible rough dielectric surface illuminated by a directional emitter
+class RoughDielectricRoughnessDirectionalConfig(ConfigBase):
+    def __init__(self) -> None:
+        super().__init__()
+        self.key = 'plane.bsdf.alpha.value'
+        self.scene_dict = {
+            'type': 'scene',
+            'plane': {
+                'type': 'rectangle',
+                'bsdf': { 
+                    'type': 'roughdielectric',
+                    'int_ior': 1.34,
+                    'ext_ior': 1.0,
+                    'distribution': 'beckmann',
+                    'alpha': 0.1,
+                    'sample_visible': False
+                }
+            },
+            'emitter': {
+                'type': 'directional',
+                'direction': [-0.5, 0, -0.866],
+                'irradiance': 1.0
+            }
+        }
+
+class MediumAlbedoConfig(ConfigBase):
+    def __init__(self) -> None:
+        super().__init__()
+        self.error_max_threshold_bwd = 0.1
+        self.key = 'a_medium.albedo.value.value'
+        self.scene_dict = {
+            'type': 'scene',
+            'a_medium': {
+                'type': 'homogeneous',
+                'phase': {
+                    'type': 'hg',
+                    'g': 0.5
+                },
+                'albedo': 0.5,
+                'sigma_t': 1.0,
+                'has_spectral_extinction': False
+            },
+            'top': {
+                'type': 'rectangle',
+                'bsdf': { 
+                    'type': 'null',
+                },
+                'to_world':  T.translate([0.0, 0.0, 1.0]) @ T.scale([1000000, 1000000, 1]),
+                'interior' : {
+                    'type' : 'ref',
+                    'id' : 'a_medium'
+                }
+            },
+            'bottom': {
+                'type': 'rectangle',
+                'bsdf': { 
+                    'type': 'diffuse',
+                    'reflectance': 0.0
+                },
+                'to_world': T.scale([1000000, 1000000, 1]),
+                'exterior' : {
+                    'type' : 'ref',
+                    'id' : 'a_medium'
+                }
+            },
+            'light': {
+                'type': 'rectangle',
+                'to_world': T.translate([0.0, 0.0, 5.0]) @ T.rotate([0, 1, 0], -180),
+                'emitter': {
+                    'type': 'area',
+                    'radiance': {'type': 'rgb', 'value': [3.0, 3.0, 3.0]}
+                }
+            }
+        }
+
+class MediumPhaseConfig(ConfigBase):
+    def __init__(self) -> None:
+        super().__init__()
+        self.key = 'a_medium.phase_function.g'
+        self.scene_dict = {
+            'type': 'scene',
+            'a_medium': {
+                'type': 'homogeneous',
+                'phase': {
+                    'type': 'hg',
+                    'g': 0.5
+                },
+                'albedo': 0.5,
+                'sigma_t': 1.0,
+                'has_spectral_extinction': False
+            },
+            'top': {
+                'type': 'rectangle',
+                'bsdf': { 
+                    'type': 'null',
+                },
+                'to_world': T.translate([0.0, 0.0, 1.0]) @ T.scale([1000000, 1000000, 1]),
+                'interior' : {
+                    'type' : 'ref',
+                    'id' : 'a_medium'
+                }
+            },
+            'bottom': {
+                'type': 'rectangle',
+                'bsdf': { 
+                    'type': 'diffuse',
+                    'reflectance': 0.0
+                },
+                'to_world': T.scale([1000000, 1000000, 1]),
+                'exterior' : {
+                    'type' : 'ref',
+                    'id' : 'a_medium'
+                }
+            },
+            'light': {
+                'type': 'rectangle',
+                'to_world': T.translate([0.0, 0.0, 5.0]) @ T.rotate([0, 1, 0], -180),
+                'emitter': {
+                    'type': 'area',
+                    'radiance': {'type': 'rgb', 'value': [3.0, 3.0, 3.0]}
+                }
+            }
         }
 
 # -------------------------------------------------------------------
@@ -294,18 +450,22 @@ BASIC_CONFIGS_LIST = [
 ]
 
 ADVANCED_CONFIGS_LIST = [
-    RoughDielectricEtaConfig,
-    # RoughDielectricRoughnessConfig
+    # RoughDielectricEtaConfig,
+    # RoughDielectricRoughnessConfig,
+    # RoughDielectricEtaDirectionalConfig,
+    # RoughDielectricRoughnessDirectionalConfig,
+    MediumAlbedoConfig,
+    MediumPhaseConfig
 ]
 
 # List of integrators to test (also indicates whether it handles discontinuities)
 INTEGRATORS = [
-    ('prb_polarized', False)
+    ('prb_volpathaos', False)
 ]
 
 CONFIGS = []
 for integrator_name, reparam in INTEGRATORS:
-    todos = BASIC_CONFIGS_LIST
+    todos = ADVANCED_CONFIGS_LIST
     for config in todos:
         CONFIGS.append((integrator_name, config))
 
@@ -318,14 +478,14 @@ ref_spp = 10000
 mi.set_variant('llvm_ad_mono_polarized')
 
 # Generate reference primal/forward results for all configs.
-for config_base in BASIC_CONFIGS_LIST:
+for config_base in ADVANCED_CONFIGS_LIST:
     config = config_base()
     print(f"name: {config.name}")
 
     config.initialize()
 
     integrator_ref = mi.load_dict({
-        'type': 'volpathaos',
+        'type': 'prb_volpathaos',
         'max_depth': config.integrator_dict['max_depth']
     })
 
@@ -443,6 +603,9 @@ def test02_rendering_backward(variants_llvm_ad_mono_polarized, integrator_name, 
     # FD ref is really a Jacobian, perform one last multiplication
     # dx = dy^T @ J to match the output of dr.grad()
     grad_ref = dr.dot(dr.ravel(ref_fd), dr.ravel(image_adj))[0]
+    
+    print(f"grad:     {grad}")
+    print(f"grad_ref: {grad_ref}")
 
     error = dr.abs(grad - grad_ref) / dr.maximum(dr.abs(grad_ref), 1e-3)
     if error > config.error_max_threshold_bwd:
