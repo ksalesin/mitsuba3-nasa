@@ -58,21 +58,21 @@ public:
     MI_IMPORT_BASE(PhaseFunction, m_flags, m_components)
     MI_IMPORT_TYPES(PhaseFunctionContext)
 
-    using Complex2f = dr::Complex<ScalarFloat>;
+    using Complex2f = dr::Complex<Float>;
     using Warp2D1 = Marginal2D<Float, 1, true>;
 
     MiePhaseFunction(const Properties &props) : Base(props) {
         if constexpr(is_rgb_v<Spectrum>)
             Throw("Mie phase function may only be used in monochromatic or spectral mode!");
 
-        m_r = props.get<ScalarFloat>("radius", 10000.f);
         m_nmax = props.get<ScalarInt32>("nmax", -1);
+        ScalarFloat r = props.get<ScalarFloat>("radius", 10000.f);
         ScalarFloat ior_med_re = props.get<ScalarFloat>("ior_med", 1.f);
         ScalarFloat ior_med_im = props.get<ScalarFloat>("ior_med_i", 0.f);
         ScalarFloat ior_sph_re = props.get<ScalarFloat>("ior_sph", 1.33f);
         ScalarFloat ior_sph_im = props.get<ScalarFloat>("ior_sph_i", 0.f);
 
-        if (m_r <= 0)
+        if (r <= 0)
             Log(Error, "The radius of the spheres must be positive!");
 
         if (m_nmax < -1)
@@ -81,65 +81,71 @@ public:
         if (ior_med_re <= 0 || ior_sph_re <= 0)
             Log(Error, "Indices of refraction must be positive!");
 
-        m_ior_med = Complex2f(ior_med_re, ior_med_im);
-        m_ior_sph = Complex2f(ior_sph_re, ior_sph_im);
+        m_r = r;
+        m_ior_med_re = ior_med_re;
+        m_ior_med_im = ior_med_im;
+        m_ior_sph_re = ior_sph_re;
+        m_ior_sph_im = ior_sph_im;
+
+        m_ior_med = Complex2f(m_ior_med_re, m_ior_med_im);
+        m_ior_sph = Complex2f(m_ior_sph_re, m_ior_sph_im);
         
         m_flags = +PhaseFunctionFlags::Anisotropic;
         dr::set_attr(this, "flags", m_flags);
         m_components.push_back(m_flags);
 
-        construct_pf();
+        // construct_pf();
     }
 
     /**
      * \brief Construct 2D sampling distribution for phase function 
      * due to its spikiness and complexity of evaluation.
      */
-    void construct_pf() {
-        ScalarFloat wavelength_min = MI_CIE_MIN;
-        ScalarFloat wavelength_max = MI_CIE_MAX;
-        ScalarFloat wavelength_range = wavelength_max - wavelength_min;
-        uint32_t wavelength_res = (uint32_t) (wavelength_max - wavelength_min); // 1 nm resolution
+    // void construct_pf() {
+    //     ScalarFloat wavelength_min = MI_CIE_MIN;
+    //     ScalarFloat wavelength_max = MI_CIE_MAX;
+    //     ScalarFloat wavelength_range = wavelength_max - wavelength_min;
+    //     uint32_t wavelength_res = (uint32_t) (wavelength_max - wavelength_min); // 1 nm resolution
 
-        uint32_t theta_res = 180;
-        uint32_t phi_res = 2;
+    //     uint32_t theta_res = 180;
+    //     uint32_t phi_res = 2;
 
-        // Phase function evaluated at theta_res x phi_res grid points
-        std::vector<ScalarFloat> wavelengths(wavelength_res);  
-        std::vector<ScalarFloat> values(wavelength_res * theta_res * phi_res);
+    //     // Phase function evaluated at theta_res x phi_res grid points
+    //     std::vector<ScalarFloat> wavelengths(wavelength_res);  
+    //     std::vector<ScalarFloat> values(wavelength_res * theta_res * phi_res);
 
-        for (size_t v = 0; v < wavelength_res; v++) {
-            ScalarFloat wavelength = wavelengths[v] = wavelength_min + (ScalarFloat) v * wavelength_range / wavelength_res;
-            uint32_t pfx = theta_res * phi_res * v;
+    //     for (size_t v = 0; v < wavelength_res; v++) {
+    //         ScalarFloat wavelength = wavelengths[v] = wavelength_min + (ScalarFloat) v * wavelength_range / wavelength_res;
+    //         uint32_t pfx = theta_res * phi_res * v;
 
-            for (size_t i = 0; i < theta_res; i++) {
-                ScalarFloat theta = dr::Pi<ScalarFloat> * (ScalarFloat) i / (theta_res - 1);
-                ScalarFloat mu = dr::cos(theta);
+    //         for (size_t i = 0; i < theta_res; i++) {
+    //             ScalarFloat theta = dr::Pi<ScalarFloat> * (ScalarFloat) i / (theta_res - 1);
+    //             ScalarFloat mu = dr::cos(theta);
 
-                auto [s1, s2, ns] = mie_s1s2(wavelength, mu, m_r, m_ior_med, m_ior_sph, m_nmax);
+    //             auto [s1, s2, ns] = mie_s1s2(wavelength, mu, m_r, m_ior_med, m_ior_sph, m_nmax);
 
-                // Phase function value
-                auto value = 0.5f * (dr::squared_norm(s1) + dr::squared_norm(s2)) * dr::rcp(ns);
+    //             // Phase function value
+    //             auto value = 0.5f * (dr::squared_norm(s1) + dr::squared_norm(s2)) * dr::rcp(ns);
 
-                for (size_t j = 0; j < phi_res; j++) {
-                    // Phase function does not actually depend on phi
-                    values[pfx + j * theta_res + i] = value;
-                }
-            }
-        }
+    //             for (size_t j = 0; j < phi_res; j++) {
+    //                 // Phase function does not actually depend on phi
+    //                 values[pfx + j * theta_res + i] = value;
+    //             }
+    //         }
+    //     }
 
-        m_pf = Warp2D1(
-            values.data(),
-            ScalarVector2u(theta_res, phi_res),
-            {{
-                (uint32_t) wavelength_res
-            }},
-            {{
-                wavelengths.data()
-            }},
-            false, true
-        );
-    }
+    //     m_pf = Warp2D1(
+    //         values.data(),
+    //         ScalarVector2u(theta_res, phi_res),
+    //         {{
+    //             (uint32_t) wavelength_res
+    //         }},
+    //         {{
+    //             wavelengths.data()
+    //         }},
+    //         false, true
+    //     );
+    // }
 
     /**
      * Numerically stable method computing the elevation of the given
@@ -267,8 +273,17 @@ public:
 
     void traverse(TraversalCallback *callback) override {
         callback->put_parameter("radius", m_r, +ParamFlags::Differentiable);
-        callback->put_parameter("ior_med", m_ior_med, +ParamFlags::Differentiable);
-        callback->put_parameter("ior_sph", m_ior_sph, +ParamFlags::Differentiable);
+        callback->put_parameter("ior_med", m_ior_med_re, +ParamFlags::Differentiable);
+        callback->put_parameter("ior_med_i", m_ior_med_im, +ParamFlags::Differentiable);
+        callback->put_parameter("ior_sph", m_ior_sph_re, +ParamFlags::Differentiable);
+        callback->put_parameter("ior_sph_i", m_ior_sph_im, +ParamFlags::Differentiable);
+    }
+
+
+    void parameters_changed(const std::vector<std::string> &keys) override {
+        m_ior_med = Complex2f(m_ior_med_re, m_ior_med_im);
+        m_ior_sph = Complex2f(m_ior_sph_re, m_ior_sph_im);
+        Base::parameters_changed();
     }
 
     std::string to_string() const override {
@@ -299,9 +314,10 @@ private:
         return dr::clamp(phi * dr::InvTwoPi<Value> + 0.5f, 0.f, 1.f);
     }
 
-    ScalarFloat m_r;
+    Float m_r;
     ScalarInt32 m_nmax;
     Complex2f m_ior_med, m_ior_sph;
+    Float m_ior_med_re, m_ior_med_im, m_ior_sph_re, m_ior_sph_im; // For differentiating
 
     Warp2D1 m_pf;
 };

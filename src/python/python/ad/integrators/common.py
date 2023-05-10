@@ -1135,16 +1135,16 @@ class RBIntegrator(ADIntegrator):
             film_size = film.crop_size()
             n_wavelengths = len(ray.wavelengths)
 
+            # Should this be here or outside resume_grad block? 
+            # Rotate Stokes reference frames if polarized
+            if mi.is_polarized:
+                L = self.to_sensor_mueller(sensor, ray, L)
+
             # Accumulate and normalize final spectrum
             spectrum = mi.Spectrum(0.0)
 
             with dr.resume_grad():
                 dr.enable_grad(L)
-
-                # Should this be here or outside resume_grad block? 
-                # Rotate Stokes reference frames if polarized
-                if mi.is_polarized:
-                    L = self.to_sensor_mueller(sensor, ray, L)
 
                 # Accumulate into the image block.
                 # After reparameterizing the camera ray, we need to evaluate

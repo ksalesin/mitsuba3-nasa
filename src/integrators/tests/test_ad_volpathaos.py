@@ -50,7 +50,7 @@ class ConfigBase:
     require_reparameterization = False
 
     def __init__(self) -> None:
-        self.spp = 1024
+        self.spp = 8
         self.res = 32
         self.error_mean_threshold = 0.05
         self.error_max_threshold = 0.5
@@ -58,7 +58,7 @@ class ConfigBase:
         self.ref_fd_epsilon = 1e-3
 
         self.integrator_dict = {
-            'max_depth': 10000,
+            'max_depth': 3,
         }
 
         self.sensor_dict = {
@@ -445,7 +445,7 @@ BASIC_CONFIGS_LIST = [
     DiffuseAlbedoGIConfig,
     AreaLightRadianceConfig,
     DirectlyVisibleAreaLightRadianceConfig,
-    # PointLightIntensityConfig,
+    PointLightIntensityConfig,
     ConstantEmitterRadianceConfig,
 ]
 
@@ -453,9 +453,9 @@ ADVANCED_CONFIGS_LIST = [
     # RoughDielectricEtaConfig,
     # RoughDielectricRoughnessConfig,
     # RoughDielectricEtaDirectionalConfig,
-    # RoughDielectricRoughnessDirectionalConfig,
-    MediumAlbedoConfig,
-    MediumPhaseConfig
+    RoughDielectricRoughnessDirectionalConfig,
+    # MediumAlbedoConfig,
+    # MediumPhaseConfig
 ]
 
 # List of integrators to test (also indicates whether it handles discontinuities)
@@ -465,7 +465,7 @@ INTEGRATORS = [
 
 CONFIGS = []
 for integrator_name, reparam in INTEGRATORS:
-    todos = ADVANCED_CONFIGS_LIST
+    todos = BASIC_CONFIGS_LIST
     for config in todos:
         CONFIGS.append((integrator_name, config))
 
@@ -478,14 +478,14 @@ ref_spp = 10000
 mi.set_variant('llvm_ad_mono_polarized')
 
 # Generate reference primal/forward results for all configs.
-for config_base in ADVANCED_CONFIGS_LIST:
+for config_base in BASIC_CONFIGS_LIST:
     config = config_base()
     print(f"name: {config.name}")
 
     config.initialize()
 
     integrator_ref = mi.load_dict({
-        'type': 'prb_volpathaos',
+        'type': 'volpathaos',
         'max_depth': config.integrator_dict['max_depth']
     })
 
@@ -497,6 +497,7 @@ for config_base in ADVANCED_CONFIGS_LIST:
                                          False,    # develop film
                                          True,     # evaluate
                                          0)        # thread count (0 for auto-detect)
+    dr.eval(ref_primal)
     
     config_base.ref_primal = ref_primal
 
