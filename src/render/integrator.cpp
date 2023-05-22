@@ -43,12 +43,12 @@ Integrator<Float, Spectrum>::render(Scene *scene,
 
 MI_VARIANT Spectrum
 Integrator<Float, Spectrum>::render_1(Scene *scene,
-                                                   uint32_t sensor_index,
-                                                   uint32_t seed,
-                                                   uint32_t spp,
-                                                   bool develop,
-                                                   bool evaluate,
-                                                   size_t thread_count) {
+                                      uint32_t sensor_index,
+                                      uint32_t seed,
+                                      uint32_t spp,
+                                      bool develop,
+                                      bool evaluate,
+                                      size_t thread_count) {
     if (sensor_index >= scene->sensors().size())
         Throw("Scene::render_1(): sensor index %i is out of bounds!", sensor_index);
 

@@ -1390,11 +1390,37 @@ def render_backward(self: mi.Integrator,
         # Process the computation graph using reverse-mode AD
         dr.backward_from(image * grad_in)
 
+def render_1_backward(self: mi.Integrator,
+                      scene: mi.Scene,
+                      params: Any,
+                      grad_in: mi.TensorXf,
+                      sensor: Union[int, mi.Sensor] = 0,
+                      seed: int = 0,
+                      spp: int = 0) -> None:
+    """ Analogous to above render_backward() but for render_1(). """
+
+    # Recorded loops cannot be differentiated, so let's disable them
+    with dr.scoped_set_flag(dr.JitFlag.LoopRecord, False):
+        spectrum = self.render_1(
+            scene=scene,
+            sensor=sensor,
+            seed=seed,
+            spp=spp,
+            develop=False,
+            evaluate=False
+        )
+
+        # Process the computation graph using reverse-mode AD
+        # dr.backward_from(spectrum @ grad_in)
+        dr.backward_from(dr.dot(dr.ravel(spectrum), dr.ravel(grad_in)))
+
 # Monkey-patch render_forward/backward into the Integrator base class
 mi.Integrator.render_backward = render_backward
+mi.Integrator.render_1_backward = render_1_backward
 mi.Integrator.render_forward = render_forward
 
 del render_backward
+del render_1_backward
 del render_forward
 
 # ------------------------------------------------------------------------------
