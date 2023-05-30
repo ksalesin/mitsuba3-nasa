@@ -4,6 +4,7 @@
 #include <mitsuba/core/distr_2d.h>
 #include <mitsuba/render/mie.h>
 #include <mitsuba/render/phase.h>
+#include <mitsuba/render/sizedistr.h>
 #include <drjit/complex.h>
 
 NAMESPACE_BEGIN(mitsuba)
@@ -56,7 +57,7 @@ template <typename Float, typename Spectrum>
 class MiePhaseFunction final : public PhaseFunction<Float, Spectrum> {
 public:
     MI_IMPORT_BASE(PhaseFunction, m_flags, m_components)
-    MI_IMPORT_TYPES(PhaseFunctionContext)
+    MI_IMPORT_TYPES(PhaseFunctionContext, SizeDistribution)
 
     using Complex2f = dr::Complex<Float>;
     using Warp2D1 = Marginal2D<Float, 1, true>;
@@ -65,15 +66,33 @@ public:
         if constexpr(is_rgb_v<Spectrum>)
             Throw("Mie phase function may only be used in monochromatic or spectral mode!");
 
+        for (auto &[name, obj] : props.objects(false)) {
+            auto *size_distr = dynamic_cast<SizeDistribution *>(obj.get());
+
+            if (size_distr) {
+                if (m_size_distr)
+                    Throw("Only a single size distribution can be specified");
+                m_size_distr = size_distr;
+                props.mark_queried(name);
+            }
+        }
+
+        auto pmgr = PluginManager::instance();
+        if (!m_size_distr) {
+            // Instantiate a monodisperse size distribution if none was specified
+            ScalarFloat radius = props.get<ScalarFloat>("radius", 1000.f);
+
+            Properties props_mono("monodisperse");
+            props_mono.set_float("radius", radius);
+            m_size_distr = static_cast<SizeDistribution *>(pmgr->create_object<SizeDistribution>(props_mono));
+        }
+
         m_nmax = props.get<ScalarInt32>("nmax", -1);
-        ScalarFloat r = props.get<ScalarFloat>("radius", 10000.f);
+        m_numerical_accuracy = props.get<ScalarFloat>("m_numerical_accuracy", 1e-7f);
         ScalarFloat ior_med_re = props.get<ScalarFloat>("ior_med", 1.f);
         ScalarFloat ior_med_im = props.get<ScalarFloat>("ior_med_i", 0.f);
         ScalarFloat ior_sph_re = props.get<ScalarFloat>("ior_sph", 1.33f);
         ScalarFloat ior_sph_im = props.get<ScalarFloat>("ior_sph_i", 0.f);
-
-        if (r <= 0)
-            Log(Error, "The radius of the spheres must be positive!");
 
         if (m_nmax < -1)
             Log(Error, "The number of series terms must be positive or -1 (automatic)!");
@@ -81,7 +100,6 @@ public:
         if (ior_med_re <= 0 || ior_sph_re <= 0)
             Log(Error, "Indices of refraction must be positive!");
 
-        m_r = r;
         m_ior_med_re = ior_med_re;
         m_ior_med_im = ior_med_im;
         m_ior_sph_re = ior_sph_re;
@@ -162,7 +180,7 @@ public:
                       const MediumInteraction3f &mi, 
                       const Vector3f &wo,
                       Mask active) const {
-        Spectrum phase_val;
+        Spectrum phase_val(0.f);
         UnpolarizedSpectrum wavelengths_u;
 
         if constexpr(is_rgb_v<Spectrum>) {
@@ -173,17 +191,62 @@ public:
 
         // The direction of light propagation is +z in local space
         Float mu = Frame3f::cos_theta(wo);
-        
-        auto [s1, s2, ns] = mie_s1s2(wavelengths_u, 
-                                     UnpolarizedSpectrum(mu), 
-                                     UnpolarizedSpectrum(m_r), 
-                                     dr::Complex<UnpolarizedSpectrum>(m_ior_med), 
-                                     dr::Complex<UnpolarizedSpectrum>(m_ior_sph), 
-                                     m_nmax);
+
+        // Get radius
+        ScalarFloat min_radius = m_size_distr->min_radius();
+        ScalarFloat max_radius = m_size_distr->max_radius();
+
+        if (min_radius == max_radius) {
+            auto [s1, s2, ns] = mie_s1s2(wavelengths_u, 
+                                         UnpolarizedSpectrum(mu), 
+                                         UnpolarizedSpectrum(min_radius), 
+                                         dr::Complex<UnpolarizedSpectrum>(m_ior_med), 
+                                         dr::Complex<UnpolarizedSpectrum>(m_ior_sph), 
+                                         m_nmax);
+
+            if constexpr (is_polarized_v<Spectrum>) {
+                phase_val = mueller::mie_scatter(s1, s2, ns);
+            } else {
+                phase_val = 0.5f * (dr::squared_norm(s1) + dr::squared_norm(s2)) * dr::rcp(ns);
+            }
+        } else {
+            UnpolarizedSpectrum Cs_avg(0.f);
+
+            // Estimate integral over radius distribution by Gaussian quadrature
+            uint32_t g = m_size_distr->n_gauss();
+
+            for (uint32_t i = 0; i < g; i++) {
+                auto [radius, weight, sdf] = m_size_distr->eval_gauss(i);
+
+                // Float radius = 1.f, weight = 1.f, sdf = 1.f;
+                auto [s1, s2, ns] = mie_s1s2(wavelengths_u, 
+                                             UnpolarizedSpectrum(mu), 
+                                             UnpolarizedSpectrum(radius), 
+                                             dr::Complex<UnpolarizedSpectrum>(m_ior_med), 
+                                             dr::Complex<UnpolarizedSpectrum>(m_ior_sph), 
+                                             m_nmax);
+
+                auto [Cs, Ct] = mie_xsections(wavelengths_u,
+                                              UnpolarizedSpectrum(radius), 
+                                              dr::Complex<UnpolarizedSpectrum>(m_ior_med), 
+                                              dr::Complex<UnpolarizedSpectrum>(m_ior_sph), 
+                                              m_nmax);
+   
+                Spectrum phase_r;
+                if constexpr (is_polarized_v<Spectrum>) {
+                    phase_r = mueller::mie_scatter(s1, s2, ns);
+                } else {
+                    phase_r = 0.5f * (dr::squared_norm(s1) + dr::squared_norm(s2)) * dr::rcp(ns);
+                }
+
+                Cs_avg += weight * sdf * Cs;
+                phase_val += weight * sdf * Cs * phase_r;
+            }
+
+            phase_val /= Cs_avg;
+        }
 
         if constexpr (is_polarized_v<Spectrum>) {
-            phase_val = mueller::mie_scatter(s1, s2, ns);
-
             /* Due to the coordinate system rotations for polarization-aware
                 pBSDFs below we need to know the propagation direction of light.
                 In the following, light arrives along `-wo_hat` and leaves along
@@ -208,8 +271,6 @@ public:
 
             // If the cross product x_hat is too small, M may be NaN due to normalize()
             dr::masked(phase_val, dr::isnan(phase_val)) = 0.f;
-        } else {
-            phase_val = 0.5f * (dr::squared_norm(s1) + dr::squared_norm(s2)) * dr::rcp(ns);
         }
         
         return phase_val;
@@ -272,7 +333,6 @@ public:
     }
 
     void traverse(TraversalCallback *callback) override {
-        callback->put_parameter("radius", m_r, +ParamFlags::Differentiable);
         callback->put_parameter("ior_med", m_ior_med_re, +ParamFlags::Differentiable);
         callback->put_parameter("ior_med_i", m_ior_med_im, +ParamFlags::Differentiable);
         callback->put_parameter("ior_sph", m_ior_sph_re, +ParamFlags::Differentiable);
@@ -289,7 +349,6 @@ public:
     std::string to_string() const override {
         std::ostringstream oss;
         oss << "MiePhaseFunction[" << std::endl
-            << "  radius = " << string::indent(m_r) << std::endl
             << "  ior_med = " << string::indent(m_ior_med) << std::endl
             << "  ior_sph = " << string::indent(m_ior_sph) << std::endl
             << "]";
@@ -314,10 +373,11 @@ private:
         return dr::clamp(phi * dr::InvTwoPi<Value> + 0.5f, 0.f, 1.f);
     }
 
-    Float m_r;
     ScalarInt32 m_nmax;
+    ScalarFloat m_numerical_accuracy;
     Complex2f m_ior_med, m_ior_sph;
     Float m_ior_med_re, m_ior_med_im, m_ior_sph_re, m_ior_sph_im; // For differentiating
+    ref<SizeDistribution> m_size_distr;
 
     Warp2D1 m_pf;
 };

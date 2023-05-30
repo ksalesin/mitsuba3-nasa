@@ -67,6 +67,7 @@ add_library(mitsuba-render OBJECT
   scene.cpp        ${INC_DIR}/scene.h
   sensor.cpp       ${INC_DIR}/sensor.h
   shape.cpp        ${INC_DIR}/shape.h
+  sizedistr.cpp    ${INC_DIR}/sizedistr.h
   texture.cpp      ${INC_DIR}/texture.h
                    ${INC_DIR}/microflake.h
   spiral.cpp       ${INC_DIR}/spiral.h

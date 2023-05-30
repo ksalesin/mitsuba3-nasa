@@ -29,6 +29,7 @@ template <typename Float, typename Spectrum> class ProjectiveCamera;
 template <typename Float, typename Spectrum> class Shape;
 template <typename Float, typename Spectrum> class ShapeGroup;
 template <typename Float, typename Spectrum> class ShapeKDTree;
+template <typename Float, typename Spectrum> class SizeDistribution;
 template <typename Float, typename Spectrum> class Texture;
 template <typename Float, typename Spectrum> class Volume;
 template <typename Float, typename Spectrum> class VolumeGrid;
@@ -89,6 +90,7 @@ template <typename Float_, typename Spectrum_> struct RenderAliases {
     using Endpoint               = mitsuba::Endpoint<FloatU, SpectrumU>;
     using Medium                 = mitsuba::Medium<FloatU, SpectrumU>;
     using PhaseFunction          = mitsuba::PhaseFunction<FloatU, SpectrumU>;
+    using SizeDistribution       = mitsuba::SizeDistribution<FloatU, SpectrumU>;
     using Film                   = mitsuba::Film<FloatU, SpectrumU>;
     using ImageBlock             = mitsuba::ImageBlock<FloatU, SpectrumU>;
     using ReconstructionFilter   = mitsuba::ReconstructionFilter<FloatU, SpectrumU>;
@@ -176,6 +178,7 @@ template <typename Float_, typename Spectrum_> struct RenderAliases {
     using Endpoint               = typename RenderAliases::Endpoint;                               \
     using Medium                 = typename RenderAliases::Medium;                                 \
     using PhaseFunction          = typename RenderAliases::PhaseFunction;                          \
+    using SizeDistribution       = typename RenderAliases::SizeDistribution;                          \
     using Film                   = typename RenderAliases::Film;                                   \
     using ImageBlock             = typename RenderAliases::ImageBlock;                             \
     using ReconstructionFilter   = typename RenderAliases::ReconstructionFilter;                   \

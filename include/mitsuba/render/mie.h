@@ -199,7 +199,7 @@ std::tuple<dr::Complex<Value>, dr::Complex<Value>, Value> mie_s1s2(Value wavelen
  * 
 */
 template <typename Value, typename Int>
-std::tuple<Value, Value> mie_xsections(const Value &wavelengths, Value radius, dr::Complex<Value> ior_med, dr::Complex<Value> ior_sph, Int nmax_) {
+std::tuple<Value, Value> mie_xsections(Value wavelengths, Value radius, dr::Complex<Value> ior_med, dr::Complex<Value> ior_sph, Int nmax_) {
     using Complex2v = dr::Complex<Value>;
     using Array2v = dr::Array<Value, 2>;
 
@@ -264,7 +264,7 @@ std::tuple<Value, Value> mie_xsections(const Value &wavelengths, Value radius, d
               hx_1 = -h_exp * (1.f + i * rcp_x);
 
     // Accumulation variables for cross sections
-    Complex2v Cs = 0, Ct = 0;
+    Value Cs = 0, Ct = 0;
 
     for (Int n = 1; n <= x_nmax; ++n) {
         Value fn = n;
@@ -302,7 +302,7 @@ std::tuple<Value, Value> mie_xsections(const Value &wavelengths, Value radius, d
         Ct += dr::real(kn * (a_n + b_n));
     }
 
-    Value k = dr::TwoPi<Value> / dr::sqr(kx);
+    Value k = dr::TwoPi<Value> / dr::squared_norm(kx); // Does this assume the medium is non-absorbing (i.e. kx is not actually complex)?
     Cs *= k;
     Ct *= k;
 
