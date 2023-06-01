@@ -241,6 +241,8 @@ public:
 
                 Cs_avg += weight * sdf * Cs;
                 phase_val += weight * sdf * Cs * phase_r;
+                dr::schedule(Cs_avg, phase_val);
+                dr::eval();
             }
 
             phase_val /= Cs_avg;
