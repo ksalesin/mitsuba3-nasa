@@ -577,9 +577,11 @@ public:
     /// Initialize from a given floating point array
     IrregularContinuousDistribution(const ScalarFloat *nodes,
                                     const ScalarFloat *pdf,
-                                    size_t size)
+                                    size_t size,
+                                    bool normalize = true,
+                                    bool enable_sampling = true)
         : m_nodes(dr::load<FloatStorage>(nodes, size)), m_pdf(dr::load<FloatStorage>(pdf, size)) {
-        compute_cdf(nodes, pdf, size);
+        compute_cdf(nodes, pdf, size, normalize, enable_sampling);
     }
 
     /// Update the internal state. Must be invoked when changing the pdf or range.
@@ -790,7 +792,8 @@ public:
     }
 
 private:
-    void compute_cdf(const ScalarFloat *nodes, const ScalarFloat *pdf, size_t size) {
+    void compute_cdf(const ScalarFloat *nodes, const ScalarFloat *pdf, size_t size,
+                     bool normalize = true, bool enable_sampling = true) {
         if (size < 2)
             Throw("IrregularContinuousDistribution: needs at least two entries!");
 
@@ -826,22 +829,28 @@ private:
 
             if (!(x1 > x0)) {
                 Throw("IrregularContinuousDistribution: node positions must be strictly increasing!");
-            } else if (y0 < 0. || y1 < 0.) {
-                Throw("IrregularContinuousDistribution: entries must be non-negative!");
-            } else if (value > 0.) {
-                // Determine the first and last wavelength bin with nonzero density
-                if (m_valid.x() == (uint32_t) -1)
-                    m_valid.x() = (uint32_t) i;
-                m_valid.y() = (uint32_t) i;
+            } 
+
+            if (enable_sampling) {
+                if (y0 < 0. || y1 < 0.) {
+                    Throw("IrregularContinuousDistribution: entries must be non-negative!");
+                } else if (value > 0.) {
+                    // Determine the first and last wavelength bin with nonzero density
+                    if (m_valid.x() == (uint32_t) -1)
+                        m_valid.x() = (uint32_t) i;
+                    m_valid.y() = (uint32_t) i;
+                }
             }
         }
 
-        if (dr::any(dr::eq(m_valid, (uint32_t) -1)))
-            Throw("IrregularContinuousDistribution: no probability mass found!");
+        if (enable_sampling) {
+            if (dr::any(dr::eq(m_valid, (uint32_t) -1)))
+                Throw("IrregularContinuousDistribution: no probability mass found!");
 
-        m_integral = dr::opaque<Float>(integral);
-        m_normalization = dr::opaque<Float>(1. / integral);
-        m_cdf = dr::load<FloatStorage>(cdf.data(), size - 1);
+            m_integral = dr::opaque<Float>(integral);
+            m_normalization = dr::opaque<Float>(1. / integral);
+            m_cdf = dr::load<FloatStorage>(cdf.data(), size - 1);
+        }
     }
 
 private:
