@@ -116,8 +116,8 @@ public:
         dr::set_attr(this, "flags", m_flags);
         m_components.push_back(m_flags);
 
-        if (m_wavelength != -1.f)
-            calculate_spherical_expansion();
+        // if (m_wavelength != -1.f)
+        //     calculate_spherical_expansion();
     }
 
     /**
@@ -325,56 +325,6 @@ public:
      * due to its spikiness and complexity of evaluation.
      */
     // void tabulate_mie() {
-    //     ScalarFloat wavelength_min = MI_CIE_MIN;
-    //     ScalarFloat wavelength_max = MI_CIE_MAX;
-    //     ScalarFloat wavelength_range = wavelength_max - wavelength_min;
-    //     uint32_t wavelength_res = (uint32_t) (wavelength_max - wavelength_min); // 1 nm resolution
-
-    //     uint32_t theta_res = 180;
-    //     uint32_t phi_res = 2;
-
-    //     // Phase function evaluated at theta_res x phi_res grid points
-    //     std::vector<ScalarFloat> wavelengths(wavelength_res);  
-    //     std::vector<ScalarFloat> values(wavelength_res * theta_res * phi_res);
-
-    //     for (size_t v = 0; v < wavelength_res; v++) {
-    //         ScalarFloat wavelength = wavelengths[v] = wavelength_min + (ScalarFloat) v * wavelength_range / wavelength_res;
-    //         uint32_t pfx = theta_res * phi_res * v;
-
-    //         for (size_t i = 0; i < theta_res; i++) {
-    //             ScalarFloat theta = dr::Pi<ScalarFloat> * (ScalarFloat) i / (theta_res - 1);
-    //             ScalarFloat mu = dr::cos(theta);
-
-    //             auto [s1, s2, ns] = mie_s1s2(wavelength, mu, m_r, m_ior_med, m_ior_sph, m_nmax);
-
-    //             // Phase function value
-    //             auto value = 0.5f * (dr::squared_norm(s1) + dr::squared_norm(s2)) * dr::rcp(ns);
-
-    //             for (size_t j = 0; j < phi_res; j++) {
-    //                 // Phase function does not actually depend on phi
-    //                 values[pfx + j * theta_res + i] = value;
-    //             }
-    //         }
-    //     }
-
-    //     m_pf = Warp2D1(
-    //         values.data(),
-    //         ScalarVector2u(theta_res, phi_res),
-    //         {{
-    //             (uint32_t) wavelength_res
-    //         }},
-    //         {{
-    //             wavelengths.data()
-    //         }},
-    //         false, true
-    //     );
-    // }
-
-    /**
-     * \brief Construct 2D sampling distribution for phase function 
-     * due to its spikiness and complexity of evaluation.
-     */
-    // void construct_pf() {
     //     ScalarFloat wavelength_min = MI_CIE_MIN;
     //     ScalarFloat wavelength_max = MI_CIE_MAX;
     //     ScalarFloat wavelength_range = wavelength_max - wavelength_min;

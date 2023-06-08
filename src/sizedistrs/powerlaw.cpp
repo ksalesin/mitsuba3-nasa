@@ -39,6 +39,9 @@ public:
         m_min_radius = props.get<ScalarFloat>("min_radius", 500.f);
         m_max_radius = props.get<ScalarFloat>("max_radius", 5000.f);
 
+        // exponent = 3 is used in [Mishchenko and Yang 2018]
+        m_exponent = props.get<ScalarFloat>("exponent", 3.f);
+
         if (m_min_radius <= 0 || m_max_radius <= 0)
             Log(Error, "Radii must be positive!");
 
@@ -47,7 +50,7 @@ public:
     }
 
     Float eval(Float r, bool normalize) const override {
-        Float value = dr::rcp(r * r * r);
+        Float value = dr::pow(r, -m_exponent);
 
         if (normalize)
             return Float(m_constant) * value;
@@ -60,13 +63,14 @@ public:
         oss << "PowerLawSizeDistr[" << std::endl
             << "  min_radius = " << string::indent(m_min_radius) << std::endl
             << "  max_radius = " << string::indent(m_max_radius) << std::endl
+            << "  exponent = " << string::indent(m_exponent) << std::endl
             << "]";
         return oss.str();
     }
 
     MI_DECLARE_CLASS()
 private:
-    // None
+    ScalarFloat m_exponent;
 };
 
 MI_IMPLEMENT_CLASS_VARIANT(PowerLawSizeDistr, SizeDistribution)
