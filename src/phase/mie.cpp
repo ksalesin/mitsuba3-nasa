@@ -423,7 +423,6 @@ public:
             for (uint32_t i = 0; i < g; i++) {
                 auto [radius, weight, sdf] = m_size_distr->eval_gauss(i);
 
-                // Float radius = 1.f, weight = 1.f, sdf = 1.f;
                 auto [s1, s2, ns] = mie_s1s2(wavelengths_u, 
                                              UnpolarizedSpectrum(mu), 
                                              UnpolarizedSpectrum(radius), 

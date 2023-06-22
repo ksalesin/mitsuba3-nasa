@@ -71,6 +71,12 @@ std::tuple<dr::Complex<Value>, dr::Complex<Value>, Value> mie_s1s2(Value wavelen
         y_nmax = (Int) dr::max_nested(8 + y_norm + 4.05f * dr::pow(y_norm, 1.f / 3.f));
     }
 
+    // Above this, drjit gives an error (need to investigate further)
+    x_nmax = dr::minimum(x_nmax, (Int) 1000);
+    y_nmax = dr::minimum(y_nmax, (Int) 1000);
+
+    // Log(Warn, "x_nmax: %s", x_nmax);
+
     // Default starting n for downward recurrence of ratio j_n(z) / j_{n-1}(z)
     Int x_ndown = x_nmax + 8 * (Int) dr::sqrt(x_nmax) + 3;
     Int y_ndown = y_nmax + 8 * (Int) dr::sqrt(y_nmax) + 3;
@@ -295,6 +301,9 @@ std::tuple<Value, Value> mie_xsections(Value wavelengths, Value radius, dr::Comp
                         (m_sq * jy_n * hx_dx - hx_n * jy_dy),
                   b_n = (jy_n * jx_dx - jx_n * jy_dy) /
                         (jy_n * hx_dx - hx_n * jy_dy);
+
+        if (dr::any_nested(dr::isnan(a_n)) || dr::any_nested(dr::isnan(b_n)))
+            break; // All subsequent iterations will be nan as well
 
         // Calculate i-th term of Cs and Ct
         Value kn = (2 * fn + 1);

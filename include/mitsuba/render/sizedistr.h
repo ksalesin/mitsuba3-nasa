@@ -97,6 +97,10 @@ protected:
     ScalarFloat m_min_radius;
     ScalarFloat m_max_radius;
 
+    /// Effective radius and variance
+    ScalarFloat m_reff;
+    ScalarFloat m_veff;
+
     /// Number of Gaussian quadrature points
     uint32_t m_g;
 

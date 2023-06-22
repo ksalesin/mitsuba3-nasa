@@ -70,7 +70,7 @@ MI_VARIANT void SizeDistribution<Float, Spectrum>::calculate_gauss() {
 }
 
 MI_VARIANT void SizeDistribution<Float, Spectrum>::calculate_constant() {
-    double result = 0.f;
+    double integral = 0.f;
 
     // Use Gaussian quadrature to compute integral of `eval` over radius interval
     for (uint32_t i = 0; i < m_g; i++) {
@@ -80,8 +80,60 @@ MI_VARIANT void SizeDistribution<Float, Spectrum>::calculate_constant() {
         else
             gauss_eval = eval(m_gauss_points[i], false);
 
-        result += m_gauss_weights[i] * gauss_eval;
+        integral += m_gauss_weights[i] * gauss_eval;
     }
+
+    m_constant = dr::rcp(integral);
+
+    // Use Gaussian quadrature to compute the effective radius and variance
+    double G_avg = 0.f; m_reff = 0.f; m_veff = 0.f;
+
+    for (uint32_t i = 0; i < m_g; i++) {
+        ScalarFloat radius = m_gauss_points[i];
+        ScalarFloat weight = m_gauss_weights[i];
+
+        double gauss_eval;
+        if constexpr (dr::is_jit_v<Float>)
+            gauss_eval = eval(radius)[0];
+        else
+            gauss_eval = eval(radius);
+
+        G_avg += weight * gauss_eval * dr::Pi<ScalarFloat> * dr::sqr(radius);
+    }
+
+    for (uint32_t i = 0; i < m_g; i++) {
+        ScalarFloat radius = m_gauss_points[i];
+        ScalarFloat weight = m_gauss_weights[i];
+
+        double gauss_eval;
+        if constexpr (dr::is_jit_v<Float>)
+            gauss_eval = eval(radius)[0];
+        else
+            gauss_eval = eval(radius);
+
+        m_reff += weight * gauss_eval * dr::Pi<ScalarFloat> * dr::pow(radius, 3.f);
+    }
+
+    m_reff *= dr::rcp(G_avg);
+
+    for (uint32_t i = 0; i < m_g; i++) {
+        ScalarFloat radius = m_gauss_points[i];
+        ScalarFloat weight = m_gauss_weights[i];
+
+        double gauss_eval;
+        if constexpr (dr::is_jit_v<Float>)
+            gauss_eval = eval(radius)[0];
+        else
+            gauss_eval = eval(radius);
+
+        m_veff += weight * gauss_eval * dr::sqr(radius - m_reff) * dr::Pi<ScalarFloat> * dr::sqr(radius);
+    }
+
+    m_veff *= dr::rcp(G_avg * dr::sqr(m_reff));
+
+    // Log(Info, "G_avg: %s", G_avg);
+    // Log(Info, "m_reff: %s", m_reff);
+    // Log(Info, "m_veff: %s", m_veff);
 
     // Use trapezoid rule to compute integral of `eval` over radius interval
     // ScalarFloat dr = (m_max_radius - m_min_radius) / m_g;
@@ -102,10 +154,8 @@ MI_VARIANT void SizeDistribution<Float, Spectrum>::calculate_constant() {
     //     val_0 = val_1;
     //     r += dr;
     // }
-
-    m_constant = dr::rcp(result);
 }
 
 MI_IMPLEMENT_CLASS_VARIANT(SizeDistribution, Object, "sizedistr")
 MI_INSTANTIATE_CLASS(SizeDistribution)
-NAMESPACE_END(mitsuba)
+NAMESPACE_END(
