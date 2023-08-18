@@ -146,179 +146,179 @@ public:
      * \brief Construct generalized spherical functions for efficient evaluation
      * of Mie phase function at runtime.
      */
-    void calculate_spherical_expansion() {
-        using FloatX = dr::DynamicArray<dr::scalar_t<Float>>;
-        UnpolarizedSpectrum wavelengths_u(m_wavelength);
+    // void calculate_spherical_expansion() {
+    //     using FloatX = dr::DynamicArray<dr::scalar_t<Float>>;
+    //     UnpolarizedSpectrum wavelengths_u(m_wavelength);
 
-        ScalarFloat min_radius = m_size_distr->min_radius();
-        ScalarFloat max_radius = m_size_distr->max_radius();
-        auto radius_intervals = dr::linspace<FloatX>(min_radius, max_radius, m_ndiv + 1);
+    //     ScalarFloat min_radius = m_size_distr->min_radius();
+    //     ScalarFloat max_radius = m_size_distr->max_radius();
+    //     auto radius_intervals = dr::linspace<FloatX>(min_radius, max_radius, m_ndiv + 1);
 
-        // Gaussian quadrature nodes & weights for integration over radius
-        uint32_t g_r = m_size_distr->n_gauss();
-        auto [nodes_r, weights_r] = quad::gauss_legendre<FloatX>(g_r);
+    //     // Gaussian quadrature nodes & weights for integration over radius
+    //     uint32_t g_r = m_size_distr->n_gauss();
+    //     auto [nodes_r, weights_r] = quad::gauss_legendre<FloatX>(g_r);
 
-        // Average scattering cross section
-        UnpolarizedSpectrum Cs_avg(0.f);
+    //     // Average scattering cross section
+    //     UnpolarizedSpectrum Cs_avg(0.f);
 
-        // Store expensive variables for later reuse
-        uint32_t n_r = g_r * m_ndiv;
-        std::vector<ScalarFloat> radii(n_r), sdf_r(n_r);
-        std::vector<UnpolarizedSpectrum> Cs_r(n_r);
+    //     // Store expensive variables for later reuse
+    //     uint32_t n_r = g_r * m_ndiv;
+    //     std::vector<ScalarFloat> radii(n_r), sdf_r(n_r);
+    //     std::vector<UnpolarizedSpectrum> Cs_r(n_r);
         
-        printf("Calculating average scattering cross section");
+    //     printf("Calculating average scattering cross section");
 
-        // Calculate average scattering cross section
-        for (uint32_t d = 0; d < m_ndiv; ++d) {
-            printf(".");
-            min_radius = radius_intervals[d];
-            max_radius = radius_intervals[d + 1];
-            ScalarFloat scale = max_radius - min_radius, radius, sdf;
+    //     // Calculate average scattering cross section
+    //     for (uint32_t d = 0; d < m_ndiv; ++d) {
+    //         printf(".");
+    //         min_radius = radius_intervals[d];
+    //         max_radius = radius_intervals[d + 1];
+    //         ScalarFloat scale = max_radius - min_radius, radius, sdf;
 
-            for (uint32_t i = 0; i < g_r; i++) {
-                uint32_t idx = d * g_r + i;
-                ScalarFloat node_i = nodes_r[i],
-                            weight_i = weights_r[i];
+    //         for (uint32_t i = 0; i < g_r; i++) {
+    //             uint32_t idx = d * g_r + i;
+    //             ScalarFloat node_i = nodes_r[i],
+    //                         weight_i = weights_r[i];
 
-                // Scale node interval from [-1, 1] to [min_radius, max_radius]
-                radius = dr::fmadd(node_i, 0.5f, 0.5f);
-                radius = dr::fmadd(radius, scale, min_radius);
+    //             // Scale node interval from [-1, 1] to [min_radius, max_radius]
+    //             radius = dr::fmadd(node_i, 0.5f, 0.5f);
+    //             radius = dr::fmadd(radius, scale, min_radius);
 
-                Float sdf_ = m_size_distr->eval(radius);
-                if constexpr (dr::is_jit_v<Float>)
-                    sdf = sdf_[0];
-                else
-                    sdf = sdf_;
+    //             Float sdf_ = m_size_distr->eval(radius);
+    //             if constexpr (dr::is_jit_v<Float>)
+    //                 sdf = sdf_[0];
+    //             else
+    //                 sdf = sdf_;
 
-                auto [Cs, Ct] = mie_xsections(wavelengths_u,
-                                              UnpolarizedSpectrum(radius), 
-                                              dr::Complex<UnpolarizedSpectrum>(m_ior_med), 
-                                              dr::Complex<UnpolarizedSpectrum>(m_ior_sph), 
-                                              m_nmax);
+    //             auto [Cs, Ct] = mie_xsections(wavelengths_u,
+    //                                           UnpolarizedSpectrum(radius), 
+    //                                           dr::Complex<UnpolarizedSpectrum>(m_ior_med), 
+    //                                           dr::Complex<UnpolarizedSpectrum>(m_ior_sph), 
+    //                                           m_nmax);
 
-                radii[idx] = radius;
-                sdf_r[idx] = sdf;
-                Cs_r[idx]  = Cs;
-                Cs_avg    += weight_i * sdf * Cs;
+    //             radii[idx] = radius;
+    //             sdf_r[idx] = sdf;
+    //             Cs_r[idx]  = Cs;
+    //             Cs_avg    += weight_i * sdf * Cs;
 
-                dr::schedule(Cs_avg);
-                dr::eval();
-            }
-        }
+    //             dr::schedule(Cs_avg);
+    //             dr::eval();
+    //         }
+    //     }
 
-        printf("done.\n");
+    //     printf("done.\n");
 
-        // Gaussian quadrature nodes & weights for integration over theta
-        Complex2f kx = dr::TwoPi<Float> * m_ior_med * dr::rcp(m_wavelength);
-        Complex2f x = kx * max_radius;
-        Float x_norm = dr::norm(x);
+    //     // Gaussian quadrature nodes & weights for integration over theta
+    //     Complex2f kx = dr::TwoPi<Float> * m_ior_med * dr::rcp(m_wavelength);
+    //     Complex2f x = kx * max_radius;
+    //     Float x_norm = dr::norm(x);
 
-        ScalarInt32 g_t = (ScalarInt32) dr::max_nested(2.f * (8 + x_norm + 4.05f * dr::pow(x_norm, 1.f / 3.f)));
-        auto [nodes_t, weights_t] = quad::gauss_legendre<FloatX>(g_t);
+    //     ScalarInt32 g_t = (ScalarInt32) dr::max_nested(2.f * (8 + x_norm + 4.05f * dr::pow(x_norm, 1.f / 3.f)));
+    //     auto [nodes_t, weights_t] = quad::gauss_legendre<FloatX>(g_t);
         
-        // Spherical functions
-        m_alpha1 = std::vector<ScalarFloat>(m_smax);
-        m_alpha4 = std::vector<ScalarFloat>(m_smax);
-        m_beta1  = std::vector<ScalarFloat>(m_smax);
-        m_beta2  = std::vector<ScalarFloat>(m_smax);
+    //     // Spherical functions
+    //     m_alpha1 = std::vector<ScalarFloat>(m_smax);
+    //     m_alpha4 = std::vector<ScalarFloat>(m_smax);
+    //     m_beta1  = std::vector<ScalarFloat>(m_smax);
+    //     m_beta2  = std::vector<ScalarFloat>(m_smax);
 
-        printf("Calculating expansion into spherical funtions");
+    //     printf("Calculating expansion into spherical funtions");
 
-        // Calculate spherical functions
-        for (uint32_t j = 0; j < g_t; ++j) {
-            printf(".");
-            ScalarFloat node_j = nodes_t[j],
-                        weight_j = weights_t[j],
-                        cos_theta = node_j,
-                        theta = dr::acos(node_j);
+    //     // Calculate spherical functions
+    //     for (uint32_t j = 0; j < g_t; ++j) {
+    //         printf(".");
+    //         ScalarFloat node_j = nodes_t[j],
+    //                     weight_j = weights_t[j],
+    //                     cos_theta = node_j,
+    //                     theta = dr::acos(node_j);
 
-            Spectrum phase_val(0.f);
+    //         Spectrum phase_val(0.f);
 
-            // Integrate over n_div subintervals of [min_radius, max_radius]
-            for (uint32_t d = 0; d < m_ndiv; ++d) {
-                for (uint32_t i = 0; i < g_r; i++) {
-                    uint32_t idx = d * g_r + i;
-                    ScalarFloat weight_i   = weights_r[i],
-                                radius     = radii[idx],
-                                sdf        = sdf_r[idx];
-                    UnpolarizedSpectrum Cs = Cs_r[idx];
+    //         // Integrate over n_div subintervals of [min_radius, max_radius]
+    //         for (uint32_t d = 0; d < m_ndiv; ++d) {
+    //             for (uint32_t i = 0; i < g_r; i++) {
+    //                 uint32_t idx = d * g_r + i;
+    //                 ScalarFloat weight_i   = weights_r[i],
+    //                             radius     = radii[idx],
+    //                             sdf        = sdf_r[idx];
+    //                 UnpolarizedSpectrum Cs = Cs_r[idx];
 
-                    // Get phase function value for this node
-                    auto [s1, s2, ns] = mie_s1s2(wavelengths_u, 
-                                                UnpolarizedSpectrum(cos_theta), 
-                                                UnpolarizedSpectrum(radius), 
-                                                dr::Complex<UnpolarizedSpectrum>(m_ior_med), 
-                                                dr::Complex<UnpolarizedSpectrum>(m_ior_sph), 
-                                                m_nmax);
+    //                 // Get phase function value for this node
+    //                 auto [s1, s2, ns] = mie_s1s2(wavelengths_u, 
+    //                                             UnpolarizedSpectrum(cos_theta), 
+    //                                             UnpolarizedSpectrum(radius), 
+    //                                             dr::Complex<UnpolarizedSpectrum>(m_ior_med), 
+    //                                             dr::Complex<UnpolarizedSpectrum>(m_ior_sph), 
+    //                                             m_nmax);
 
-                    Spectrum phase_r;
-                    if constexpr (is_polarized_v<Spectrum>) {
-                        phase_r = mueller::mie_scatter(s1, s2, ns);
-                    } else {
-                        phase_r = 0.5f * (dr::squared_norm(s1) + dr::squared_norm(s2)) * dr::rcp(ns);
-                    }
+    //                 Spectrum phase_r;
+    //                 if constexpr (is_polarized_v<Spectrum>) {
+    //                     phase_r = mueller::mie_scatter(s1, s2, ns);
+    //                 } else {
+    //                     phase_r = 0.5f * (dr::squared_norm(s1) + dr::squared_norm(s2)) * dr::rcp(ns);
+    //                 }
 
-                    phase_val += weight_i * sdf * Cs * phase_r;
-                    dr::schedule(phase_val);
-                    dr::eval();
-                }
-            }
+    //                 phase_val += weight_i * sdf * Cs * phase_r;
+    //                 dr::schedule(phase_val);
+    //                 dr::eval();
+    //             }
+    //         }
 
-            phase_val /= Cs_avg;
+    //         phase_val /= Cs_avg;
 
-            ScalarFloat a1, a4, b1, b2;
-            if constexpr(is_polarized_v<Spectrum>) {
-                a1 = phase_val[0][0][0][0];
-                a4 = phase_val[0][0][3][3];
-                b1 = phase_val[0][0][0][1];
-                b2 = phase_val[0][0][3][2]; // TODO: Double check this indexing
-            } else {
-                // TODO
-            }
+    //         ScalarFloat a1, a4, b1, b2;
+    //         if constexpr(is_polarized_v<Spectrum>) {
+    //             a1 = phase_val[0][0][0][0];
+    //             a4 = phase_val[0][0][3][3];
+    //             b1 = phase_val[0][0][0][1];
+    //             b2 = phase_val[0][0][3][2]; // TODO: Double check this indexing
+    //         } else {
+    //             // TODO
+    //         }
 
-            // Variables for upward recurrences of Wigner d-functions
-            ScalarFloat d00_0 = 0.f, d00_1 = 0.f, d02_0 = 0.f, d02_1 = 0.f;
+    //         // Variables for upward recurrences of Wigner d-functions
+    //         ScalarFloat d00_0 = 0.f, d00_1 = 0.f, d02_0 = 0.f, d02_1 = 0.f;
 
-            // betas are summed from s = 2 and up
-            m_beta1[0] = 0.f; m_beta1[1] = 0.f; m_beta2[0] = 0.f; m_beta2[1] = 0.f;
+    //         // betas are summed from s = 2 and up
+    //         m_beta1[0] = 0.f; m_beta1[1] = 0.f; m_beta2[0] = 0.f; m_beta2[1] = 0.f;
             
-            for (uint32_t s = 0; s < m_smax; s++) {
-                // Calculate next Wigner d-functions by upward recurrence
-                ScalarFloat d00_s, d02_s;
-                if (s == 0) {
-                    d00_s = 1.f;
-                } else {
-                    d00_s = wignerd(d00_0, d00_1, theta, 0, 0, s - 1);
-                }
-                d00_0 = d00_1; d00_1 = d00_s;
+    //         for (uint32_t s = 0; s < m_smax; s++) {
+    //             // Calculate next Wigner d-functions by upward recurrence
+    //             ScalarFloat d00_s, d02_s;
+    //             if (s == 0) {
+    //                 d00_s = 1.f;
+    //             } else {
+    //                 d00_s = wignerd(d00_0, d00_1, theta, 0, 0, s - 1);
+    //             }
+    //             d00_0 = d00_1; d00_1 = d00_s;
 
-                if (s < 2) {
-                    d02_s = 0.f;
-                } else if (s == 2) {
-                    d02_s = 0.25f * dr::sqrt(6.f) * (1 - cos_theta) * (1 + cos_theta);
-                } else {
-                    d02_s = wignerd(d02_0, d02_1, theta, 0, 0, s - 1);
-                }
+    //             if (s < 2) {
+    //                 d02_s = 0.f;
+    //             } else if (s == 2) {
+    //                 d02_s = 0.25f * dr::sqrt(6.f) * (1 - cos_theta) * (1 + cos_theta);
+    //             } else {
+    //                 d02_s = wignerd(d02_0, d02_1, theta, 0, 0, s - 1);
+    //             }
 
-                m_alpha1[s] += weight_j * a1 * d00_s;
-                m_alpha4[s] += weight_j * a4 * d00_s;
-                m_beta1[s]  += weight_j * b1 * d02_s;
-                m_beta2[s]  += weight_j * b2 * d02_s;
-            }
-        }
-        printf("done.\n");
+    //             m_alpha1[s] += weight_j * a1 * d00_s;
+    //             m_alpha4[s] += weight_j * a4 * d00_s;
+    //             m_beta1[s]  += weight_j * b1 * d02_s;
+    //             m_beta2[s]  += weight_j * b2 * d02_s;
+    //         }
+    //     }
+    //     printf("done.\n");
 
-        Log(Info, "S,ALPHA 1,ALPHA 4,BETA 1,BETA 2");
+    //     Log(Info, "S,ALPHA 1,ALPHA 4,BETA 1,BETA 2");
 
-        for (uint32_t s = 0; s < m_smax; s++) {
-            m_alpha1[s] *= (s + 0.5f);
-            m_alpha4[s] *= (s + 0.5f);
-            m_beta1[s]  *= -1 * (s + 0.5f);
-            m_beta2[s]  *= -1 * (s + 0.5f);
+    //     for (uint32_t s = 0; s < m_smax; s++) {
+    //         m_alpha1[s] *= (s + 0.5f);
+    //         m_alpha4[s] *= (s + 0.5f);
+    //         m_beta1[s]  *= -1 * (s + 0.5f);
+    //         m_beta2[s]  *= -1 * (s + 0.5f);
 
-            Log(Info, "%d,%f,%f,%f,%f", s, m_alpha1[s], m_alpha4[s], m_beta1[s], m_beta2[s]);
-        }
-    }
+    //         Log(Info, "%d,%f,%f,%f,%f", s, m_alpha1[s], m_alpha4[s], m_beta1[s], m_beta2[s]);
+    //     }
+    // }
 
     /**
      * \brief Construct a sampling distribution for phase function 
@@ -442,6 +442,10 @@ public:
                 } else {
                     phase_r = 0.5f * (dr::squared_norm(s1) + dr::squared_norm(s2)) * dr::rcp(ns);
                 }
+
+                // Some rare nan's can pop up in Mie computation
+                dr::masked(Cs, dr::isnan(Cs)) = 0.f;
+                dr::masked(phase_r, dr::isnan(phase_r)) = 0.f;
 
                 Cs_avg += weight * sdf * Cs;
                 phase_val += weight * sdf * Cs * phase_r;

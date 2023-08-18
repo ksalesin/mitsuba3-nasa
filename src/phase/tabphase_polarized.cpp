@@ -152,7 +152,8 @@ public:
         // Switch the sampled direction to graphics convention and transform the
         // computed direction to world coordinates
         //
-        // [Kate] We convert to world space in the integrator
+        // [Kate] We convert to world space in the integrator 
+        // and our mi.sh_frame = ray.d, not -ray.d (as in the base Mitsuba 3), to be consistent with to_world_mueller
         // wo = -mi.to_world(wo);
 
         Spectrum phase_val = eval(ctx, mi, wo, active);
@@ -186,8 +187,8 @@ public:
             phase_val = MuellerMatrix<Float>(
                             m11, m12, 0, 0,
                             m12, m11, 0, 0,
-                            0, 0, m33,-m34,
-                            0, 0, m34, m33
+                            0, 0, m33, m34,
+                            0, 0,-m34, m33
                         );
 
             /* Due to the coordinate system rotations for polarization-aware

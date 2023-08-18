@@ -60,7 +60,7 @@ MI_VARIANT void SizeDistribution<Float, Spectrum>::calculate_gauss() {
 
         // Calculate weights
         m_gauss_weights[i   - 1] = 2.f * scale / ((1.f - z * z) * dp * dp);
-        m_gauss_weights[m_g - i] = m_gauss_weights[i - 1];       
+        m_gauss_weights[m_g - i] = m_gauss_weights[i - 1];  
     }
     
     // for (i = 0; i < m_g; i++)
@@ -158,4 +158,4 @@ MI_VARIANT void SizeDistribution<Float, Spectrum>::calculate_constant() {
 
 MI_IMPLEMENT_CLASS_VARIANT(SizeDistribution, Object, "sizedistr")
 MI_INSTANTIATE_CLASS(SizeDistribution)
-NAMESPACE_END(
+NAMESPACE_END(mitsuba)

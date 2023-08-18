@@ -289,8 +289,8 @@ MuellerMatrix<Float> mie_scatter(Complex s1, Complex s2, Float ns) {
     return dr::rcp(ns) * MuellerMatrix<Float>(
         s11, s12, 0, 0,
         s12, s11, 0, 0,
-        0, 0, s33,-s34,
-        0, 0, s34, s33
+        0, 0, s33, s34,
+        0, 0,-s34, s33
     );
 }
 

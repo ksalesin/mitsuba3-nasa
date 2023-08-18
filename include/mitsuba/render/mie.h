@@ -75,8 +75,6 @@ std::tuple<dr::Complex<Value>, dr::Complex<Value>, Value> mie_s1s2(Value wavelen
     x_nmax = dr::minimum(x_nmax, (Int) 1000);
     y_nmax = dr::minimum(y_nmax, (Int) 1000);
 
-    // Log(Warn, "x_nmax: %s", x_nmax);
-
     // Default starting n for downward recurrence of ratio j_n(z) / j_{n-1}(z)
     Int x_ndown = x_nmax + 8 * (Int) dr::sqrt(x_nmax) + 3;
     Int y_ndown = y_nmax + 8 * (Int) dr::sqrt(y_nmax) + 3;
@@ -161,6 +159,10 @@ std::tuple<dr::Complex<Value>, dr::Complex<Value>, Value> mie_s1s2(Value wavelen
                         (m_sq * jy_n * hx_dx - hx_n * jy_dy),
                   b_n = (jy_n * jx_dx - jx_n * jy_dy) /
                         (jy_n * hx_dx - hx_n * jy_dy);
+                        
+        if (dr::any_nested(dr::isnan(a_n)) || dr::any_nested(dr::isnan(b_n))) {
+            break; // All subsequent iterations will be nan as well
+        }
 
         // Calculate i-th term of S1 and S2
         Value kn = (2 * fn + 1) / (fn * (fn + 1));

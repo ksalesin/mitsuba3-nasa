@@ -36,14 +36,14 @@ It assumes there is at most one refractive BSDF in the scene (:ref:`dielectric <
 
 */
 template <typename Float, typename Spectrum>
-class VolumetricPathAOSIntegrator : public MonteCarloIntegrator<Float, Spectrum> {
+class VolumetricPathAOSNaiveNEEIntegrator : public MonteCarloIntegrator<Float, Spectrum> {
 
 public:
     MI_IMPORT_BASE(MonteCarloIntegrator, m_max_depth, m_rr_depth, m_hide_emitters)
     MI_IMPORT_TYPES(Scene, Sampler, Emitter, EmitterPtr, BSDF, BSDFPtr,
                      Medium, MediumPtr, PhaseFunctionContext)
 
-    VolumetricPathAOSIntegrator(const Properties &props) : Base(props) {
+    VolumetricPathAOSNaiveNEEIntegrator(const Properties &props) : Base(props) {
     }
 
     MI_INLINE
@@ -91,17 +91,13 @@ public:
         SurfaceInteraction3f si = dr::zeros<SurfaceInteraction3f>();
         Mask needs_intersection = true;
 
-        // We need to keep track of whether there is a refractive transmissive surface between the current location 
-        // and the light source that requires special importance sampling for NEE (e.g. dielectric or microfacet surface)
-        BSDFPtr refractive_bsdf = nullptr;
-
         /* Set up a Dr.Jit loop (optimizes away to a normal loop in scalar mode,
            generates wavefront or megakernel renderer based on configuration).
            Register everything that changes as part of the loop here */
         dr::Loop<Mask> loop("Volpath integrator",
                             /* loop state: */ active, depth, ray, throughput,
                             result, si, mei, medium, eta, needs_intersection,
-                            refractive_bsdf, specular_chain, valid_ray, sampler);
+                            specular_chain, valid_ray, sampler);
 
         while (loop(active)) {
             // ----------------- Handle termination of paths ------------------
@@ -194,7 +190,7 @@ public:
 
                 Mask active_e = act_medium_scatter && sample_emitters;
                 if (dr::any_or<true>(active_e)) {
-                    auto [emitted, ds] = sample_emitter(mei, scene, sampler, medium, channel, refractive_bsdf, active_e);
+                    auto [emitted, ds] = sample_emitter(mei, scene, sampler, medium, channel, active_e);
                     Vector3f wo        = mei.to_local(ds.d);
                     Spectrum phase_val = phase->eval(phase_ctx, mei, wo, active_e);
                     phase_val = mei.to_world_mueller(phase_val, -wo, mei.wi);
@@ -230,6 +226,17 @@ public:
                 BSDFPtr bsdf  = si.bsdf(ray);
                 Mask active_e = active_surface && has_flag(bsdf->flags(), BSDFFlags::Smooth) && (depth + 1 < (uint32_t) m_max_depth);
 
+                // if (likely(dr::any_or<true>(active_e))) {
+                //     auto [emitted, ds] = sample_emitter(si, scene, sampler, medium, channel, active_e);
+                    
+                //     // Query the BSDF for that emitter-sampled direction
+                //     Vector3f wo       = si.to_local(ds.d);
+                //     Spectrum bsdf_val = bsdf->eval(ctx, si, wo, active_e);
+                //     bsdf_val = si.to_world_mueller(bsdf_val, -wo, si.wi);
+
+                //     result[active_e] += throughput * bsdf_val * emitted;
+                // }
+
                 if (likely(dr::any_or<true>(active_e))) {
                     Mask diffuse    = has_flag(bsdf->flags(), BSDFFlags::DiffuseReflection);
 
@@ -237,18 +244,18 @@ public:
                     Mask refractive = has_flag(bsdf->flags(), BSDFFlags::DeltaTransmission) || 
                                       has_flag(bsdf->flags(), BSDFFlags::GlossyTransmission);
 
-                    Mask reflect_e = active_e && (diffuse || (refractive && si.wi.z() > 0));
+                    Mask refract_e = active_e && (diffuse || (refractive && si.wi.z() < 0));
 
-                    // Only evaluate if this is a surface reflection
-                    if (dr::any_or<true>(reflect_e)) {
-                        auto [emitted, ds] = sample_emitter(si, scene, sampler, medium, channel, refractive_bsdf, reflect_e);
+                    // Only evaluate if this is a surface *refraction* from beneath the surface
+                    if (dr::any_or<true>(refract_e)) {
+                        auto [emitted, ds] = sample_emitter(si, scene, sampler, medium, channel, refract_e);
                         
                         // Query the BSDF for that emitter-sampled direction
                         Vector3f wo       = si.to_local(ds.d);
-                        Spectrum bsdf_val = bsdf->eval(ctx, si, wo, reflect_e);
+                        Spectrum bsdf_val = bsdf->eval(ctx, si, wo, refract_e);
                         bsdf_val = si.to_world_mueller(bsdf_val, -wo, si.wi);
 
-                        result[reflect_e] += throughput * bsdf_val * emitted;
+                        result[refract_e] += throughput * bsdf_val * emitted;
                     }
                 }
 
@@ -270,8 +277,6 @@ public:
                 Float cos_theta_old = Frame3f::cos_theta(ray.d);
                 Float cos_theta_new = Frame3f::cos_theta(bsdf_ray.d);
 
-                Mask refracted = non_null_bsdf && (cos_theta_old * cos_theta_new > 0);
-
                 // Mask refracted = active_surface && 
                 //                  (has_flag(bs.sampled_type, BSDFFlags::DeltaTransmission) || 
                 //                   has_flag(bs.sampled_type, BSDFFlags::GlossyTransmission));
@@ -285,11 +290,6 @@ public:
                 act_null_scatter |= active_surface && has_flag(bs.sampled_type, BSDFFlags::Null);
                 Mask has_medium_trans                = active_surface && si.is_medium_transition();
                 dr::masked(medium, has_medium_trans) = si.target_medium(ray.d);
-
-                Mask set_refractive_bsdf = dr::eq(refractive_bsdf, nullptr) && refracted;
-                Mask unset_refractive_bsdf = dr::neq(refractive_bsdf, nullptr) && refracted;
-                dr::masked(refractive_bsdf, set_refractive_bsdf) = bsdf;
-                dr::masked(refractive_bsdf, unset_refractive_bsdf) = nullptr;
             }
             active &= (active_surface | active_medium);
         }
@@ -298,45 +298,16 @@ public:
     }
 
     /// Samples an emitter in the scene and evaluates its attenuated contribution
+    template <typename Interaction>
     std::tuple<Spectrum, DirectionSample3f>
-    sample_emitter(const Interaction3f &ref_interaction, const Scene *scene,
-                   Sampler *sampler, MediumPtr medium, UInt32 channel, BSDFPtr refractive_bsdf,
-                   Mask active) const {
-        using EmitterPtr = dr::replace_scalar_t<Float, const Emitter *>;
+    sample_emitter(const Interaction &ref_interaction, const Scene *scene,
+                   Sampler *sampler, MediumPtr medium,
+                   UInt32 channel, Mask active) const {
         Spectrum transmittance(1.0f);
 
         auto [ds, emitter_val] = scene->sample_emitter_direction(ref_interaction, sampler->next_2d(active), false, active);
-        Vector3f emitter_d = dr::normalize(ds.d);
-
         dr::masked(emitter_val, dr::eq(ds.pdf, 0.f)) = 0.f;
         active &= dr::neq(ds.pdf, 0.f);
-
-        Mask has_refractive_bsdf = active && dr::neq(refractive_bsdf, nullptr);
-
-        Float refractive_pdf = 1.f;
-
-        // If there is a refractive BSDF between this interaction and the sensor,
-        // pick a direction that will refract to the emitter direction
-        if (dr::any_or<true>(has_refractive_bsdf)) {
-            BSDFContext ctx;
-            ctx.type_mask = BSDFFlags::GlossyTransmission | BSDFFlags::DeltaTransmission;
-
-            SurfaceInteraction3f si = dr::zeros<SurfaceInteraction3f>();
-            si.wi = emitter_d;
-
-            auto [bs, bsdf_val] = refractive_bsdf->sample(ctx, si, sampler->next_1d(has_refractive_bsdf),
-                                                        sampler->next_2d(has_refractive_bsdf), has_refractive_bsdf);
-            // ** Note **: this epsilon value can have a non-negligible effect on the final radiance estimate
-            Mask valid_sample = bs.pdf > dr::Epsilon<Float>;
-
-            // Assumes surface normal is (0, 0, 1) in world space
-            DirectionSample3f ds_tmp(ds);
-            ds_tmp.d = -bs.wo;
-
-            dr::masked(emitter_val, has_refractive_bsdf && !valid_sample) = 0.f;
-            dr::masked(ds, has_refractive_bsdf && valid_sample) = ds_tmp;
-            dr::masked(emitter_val, has_refractive_bsdf && valid_sample) /= bs.pdf;
-        }
 
         if (dr::none_or<false>(active)) {
             return { emitter_val, ds };
@@ -344,15 +315,21 @@ public:
 
         Ray3f ray = ref_interaction.spawn_ray(ds.d);
 
+        // Potentially escaping the medium if this is the current medium's boundary
+        if constexpr (std::is_convertible_v<Interaction, SurfaceInteraction3f>)
+            dr::masked(medium, ref_interaction.is_medium_transition()) =
+                ref_interaction.target_medium(ray.d);
+
         Float total_dist = 0.f;
         SurfaceInteraction3f si = dr::zeros<SurfaceInteraction3f>();
         Mask needs_intersection = true;
 
-        dr::Loop<Mask> loop("Volpath integrator emitter sampling",
-                            active, ray, total_dist, needs_intersection, medium, si,
-                            transmittance, sampler);
-        
-        while (loop(active)) {
+        dr::Loop<Mask> loop("Volpath integrator emitter sampling");
+        loop.put(active, ray, total_dist, needs_intersection, medium, si,
+                 transmittance);
+        sampler->loop_put(loop);
+        loop.init();
+        while (loop(dr::detach(active))) {
             Float remaining_dist = ds.dist * (1.f - math::ShadowEpsilon<Float>) - total_dist;
             ray.maxt = remaining_dist;
             active &= remaining_dist > 0.f;
@@ -364,44 +341,44 @@ public:
             Mask active_surface = active && !active_medium;
 
             if (dr::any_or<true>(active_medium)) {
-                auto mi = medium->sample_interaction(ray, sampler->next_1d(active_medium), channel, active_medium);
-                dr::masked(ray.maxt, active_medium && medium->is_homogeneous() && mi.is_valid()) = dr::minimum(mi.t, remaining_dist);
+                auto mei = medium->sample_interaction(ray, sampler->next_1d(active_medium), channel, active_medium);
+                dr::masked(ray.maxt, active_medium && medium->is_homogeneous() && mei.is_valid()) = dr::minimum(mei.t, remaining_dist);
                 Mask intersect = needs_intersection && active_medium;
                 if (dr::any_or<true>(intersect))
                     dr::masked(si, intersect) = scene->ray_intersect(ray, intersect);
 
-                dr::masked(mi.t, active_medium && (si.t < mi.t)) = dr::Infinity<Float>;
-                needs_intersection &= !(active_medium && si.is_valid());
+                dr::masked(mei.t, active_medium && (si.t < mei.t)) = dr::Infinity<Float>;
+                needs_intersection &= needs_intersection &= !(active_medium && si.is_valid());
 
                 Mask is_spectral = medium->has_spectral_extinction() && active_medium;
                 Mask not_spectral = !is_spectral && active_medium;
                 if (dr::any_or<true>(is_spectral)) {
-                    Float t      = dr::minimum(remaining_dist, dr::minimum(mi.t, si.t)) - mi.mint;
-                    UnpolarizedSpectrum tr  = dr::exp(-t * mi.combined_extinction);
-                    UnpolarizedSpectrum free_flight_pdf = dr::select(si.t < mi.t || mi.t > remaining_dist, tr, tr * mi.combined_extinction);
+                    Float t      = dr::minimum(remaining_dist, dr::minimum(mei.t, si.t)) - mei.mint;
+                    UnpolarizedSpectrum tr  = dr::exp(-t * mei.combined_extinction);
+                    UnpolarizedSpectrum free_flight_pdf = dr::select(si.t < mei.t || mei.t > remaining_dist, tr, tr * mei.combined_extinction);
                     Float tr_pdf = index_spectrum(free_flight_pdf, channel);
                     dr::masked(transmittance, is_spectral) *= dr::select(tr_pdf > 0.f, tr / tr_pdf, 0.f);
                 }
 
                 // Handle exceeding the maximum distance by medium sampling
-                dr::masked(total_dist, active_medium && (mi.t > remaining_dist) && mi.is_valid()) = ds.dist;
-                dr::masked(mi.t, active_medium && (mi.t > remaining_dist)) = dr::Infinity<Float>;
+                dr::masked(total_dist, active_medium && (mei.t > remaining_dist) && mei.is_valid()) = ds.dist;
+                dr::masked(mei.t, active_medium && (mei.t > remaining_dist)) = dr::Infinity<Float>;
 
-                escaped_medium = active_medium && !mi.is_valid();
-                active_medium &= mi.is_valid();
+                escaped_medium = active_medium && !mei.is_valid();
+                active_medium &= mei.is_valid();
                 is_spectral &= active_medium;
                 not_spectral &= active_medium;
 
-                dr::masked(total_dist, active_medium) += mi.t;
+                dr::masked(total_dist, active_medium) += mei.t;
 
                 if (dr::any_or<true>(active_medium)) {
-                    dr::masked(ray.o, active_medium)    = mi.p;
-                    dr::masked(si.t, active_medium) = si.t - mi.t;
+                    dr::masked(ray.o, active_medium)    = mei.p;
+                    dr::masked(si.t, active_medium) = si.t - mei.t;
 
                     if (dr::any_or<true>(is_spectral))
-                        dr::masked(transmittance, is_spectral) *= mi.sigma_n;
+                        dr::masked(transmittance, is_spectral) *= mei.sigma_n;
                     if (dr::any_or<true>(not_spectral))
-                        dr::masked(transmittance, not_spectral) *= mi.sigma_n / mi.combined_extinction;
+                        dr::masked(transmittance, not_spectral) *= mei.sigma_n / mei.combined_extinction;
                 }
             }
 
@@ -415,27 +392,10 @@ public:
 
             active_surface &= si.is_valid() && active && !active_medium;
             if (dr::any_or<true>(active_surface)) {
-                BSDFContext ctx;
-                auto bsdf = si.bsdf(ray);
-                Vector3f wo = si.to_local(emitter_d);
-                Mask is_null  = active_surface && has_flag(bsdf->flags(), BSDFFlags::Null);
-                Mask not_null = active_surface && !is_null;
-     
-                if (dr::any_or<true>(is_null)) {
-                    Spectrum bsdf_val = bsdf->eval_null_transmission(si, is_null);
-                    bsdf_val = si.to_world_mueller(bsdf_val, si.wi, si.wi);
-                    dr::masked(transmittance, is_null) *= bsdf_val;
-                }
-                
-                if (dr::any_or<true>(not_null)) {
-                    // Reached the refractive BDSF
-                    Spectrum bsdf_val = bsdf->eval(ctx, si, wo, not_null);
-                    bsdf_val = si.to_world_mueller(bsdf_val, -wo, si.wi);
-                    dr::masked(transmittance, not_null) *= bsdf_val;
-
-                    // Change ray direction since refraction occurred
-                    dr::masked(ray.d, not_null) = emitter_d;
-                }
+                auto bsdf         = si.bsdf(ray);
+                Spectrum bsdf_val = bsdf->eval_null_transmission(si, active_surface);
+                bsdf_val = si.to_world_mueller(bsdf_val, si.wi, si.wi);
+                dr::masked(transmittance, active_surface) *= bsdf_val;
             }
 
             // Update the ray with new origin & t parameter
@@ -452,7 +412,6 @@ public:
                 dr::masked(medium, has_medium_trans) = si.target_medium(ray.d);
             }
         }
-        
         return { transmittance * emitter_val, ds };
     }
 
@@ -460,7 +419,7 @@ public:
     // =============================================================
 
     std::string to_string() const override {
-        return tfm::format("VolumetricPathAOSIntegrator[\n"
+        return tfm::format("VolumetricPathAOSNaiveNEEIntegrator[\n"
                            "  max_depth = %i,\n"
                            "  rr_depth = %i\n"
                            "]",
@@ -470,6 +429,6 @@ public:
     MI_DECLARE_CLASS()
 };
 
-MI_IMPLEMENT_CLASS_VARIANT(VolumetricPathAOSIntegrator, MonteCarloIntegrator);
-MI_EXPORT_PLUGIN(VolumetricPathAOSIntegrator, "Volumetric Path Tracer AOS integrator");
+MI_IMPLEMENT_CLASS_VARIANT(VolumetricPathAOSNaiveNEEIntegrator, MonteCarloIntegrator);
+MI_EXPORT_PLUGIN(VolumetricPathAOSNaiveNEEIntegrator, "Volumetric Path Tracer AOS integrator (Naive NEE -- for validation purposes only)");
 NAMESPACE_END(mitsuba)
