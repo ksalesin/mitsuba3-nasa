@@ -1,3 +1,4 @@
+#include <drjit/tensor.h>
 #include <mitsuba/core/filesystem.h>
 #include <mitsuba/core/fresolver.h>
 #include <mitsuba/core/xml.h>
@@ -189,7 +190,7 @@ ref<Object> create_texture_from(const py::dict &dict, bool within_emitter) {
     if (type == "rgb") {
         if (dict.size() != 2) {
             Throw("'rgb' dictionary should always contain 2 entries "
-                    "('type' and 'value'), got %u.", dict.size());
+                  "('type' and 'value'), got %u.", dict.size());
         }
         // Read info from the dictionary
         Properties::Color3f color(0.f);
@@ -206,7 +207,7 @@ ref<Object> create_texture_from(const py::dict &dict, bool within_emitter) {
     } else if (type == "spectrum") {
         if (dict.size() != 2) {
             Throw("'spectrum' dictionary should always contain 2 "
-                    "entries ('type' and 'value'), got %u.", dict.size());
+                  "entries ('type' and 'value'), got %u.", dict.size());
         }
         // Read info from the dictionary
         Properties::Float const_value(1);
@@ -294,7 +295,14 @@ void parse_dictionary(DictParseContext &ctx,
         SET_PROPS(py::str, std::string, set_string);
         SET_PROPS(ScalarColor3f, ScalarColor3f, set_color);
         SET_PROPS(ScalarArray3f, ScalarArray3f, set_array3f);
+        SET_PROPS(ScalarTransform3f, ScalarTransform3f, set_transform3f);
         SET_PROPS(ScalarTransform4f, ScalarTransform4f, set_transform);
+
+        if (key.find('.') != std::string::npos) {
+            Throw("The object key '%s' contains a '.' character, which is "
+                  "already used as a delimiter in the object path in the scene."
+                  " Please use '_' instead.", key);
+        }
 
         // Parse nested dictionary
         if (py::isinstance<py::dict>(value)) {
@@ -359,6 +367,16 @@ void parse_dictionary(DictParseContext &ctx,
         // Try to cast to Array3f (list, tuple, numpy.array, ...)
         try {
             props.set_array3f(key, value.template cast<Properties::Array3f>());
+            continue;
+        } catch (const pybind11::cast_error &) { }
+
+        // Try to cast to TensorXf
+        try {
+            TensorXf tensor = value.template cast<TensorXf>();
+            // To support parallel loading we have to ensure tensor has been evaluated
+            // because tracking of side effects won't persist across different ThreadStates
+            dr::eval(tensor);
+            props.set_tensor_handle(key, std::make_shared<TensorXf>(tensor));
             continue;
         } catch (const pybind11::cast_error &) { }
 

@@ -32,7 +32,6 @@ SDF Grid (:monosp:`sdfgrid`)
 -------------------------------------------------
 
 .. pluginparameters::
- :extra-rows: 3
 
  * - filename
    - |string|
@@ -40,19 +39,22 @@ SDF Grid (:monosp:`sdfgrid`)
      aligns with a single-channel :ref:`grid-based volume data source <volume-gridvolume>`.
      If no filename is provided, the shape is initialised as an empty 2x2x2 grid.
 
+ * - grid
+   - |tensor|
+   - Tensor array containing the grid data. This parameter can only be specified
+     when building this plugin at runtime from Python or C++ and cannot be
+     specified in the XML scene description.
+   - |exposed|, |differentiable|, |discontinuous|
+
  * - watertight
    - |bool|
    - Is the associated surface watertight, i.e. does the surface contain no holes? (Default: |true|)
+   - |exposed|
 
  * - normals
    - |string|
    - Specifies the method for computing shading normals. The options are
      :monosp:`analytic` or :monosp:`smooth`. (Default: :monosp:`smooth`)
-
- * - grid
-   - |tensor|
-   - Tensor array containing the grid data.
-   - |exposed|, |differentiable|, |discontinuous|
 
  * - to_world
    - |transform|
@@ -156,6 +158,18 @@ public:
 
             m_grid_texture = InputTexture3f(
                 InputTensorXf(vol_grid.data(), 4, shape), true, true,
+                dr::FilterMode::Linear, dr::WrapMode::Clamp);
+        } else if (props.has_property("grid")) {
+            TensorXf* tensor = props.tensor<TensorXf>("grid");
+            if (tensor->ndim() != 4)
+                Throw(
+                    "SDF grid tensor has dimension %lu, expected 4",
+                    tensor->ndim());
+            if (tensor->shape(3) != 1)
+                Throw(
+                    "SDF grid shape at index 3 is %lu, expected 1",
+                    tensor->shape(3));
+            m_grid_texture = InputTexture3f(*tensor, true, true,
                 dr::FilterMode::Linear, dr::WrapMode::Clamp);
         } else {
             InputFloat default_data[8] = { -1.f, -1.f, -1.f, -1.f,

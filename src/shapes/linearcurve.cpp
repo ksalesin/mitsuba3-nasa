@@ -95,8 +95,8 @@ points and increasing radii::
 
         <shape type="linearcurve">
             <transform name="to_world">
-                <scale value="2"/>
                 <translate x="1" y="0" z="0"/>
+                <scale value="2"/>
             </transform>
             <string name="filename" type="curves.txt"/>
         </shape>
@@ -108,6 +108,9 @@ points and increasing radii::
             'to_world': mi.ScalarTransform4f.scale([2, 2, 2]).translate([1, 0, 0]),
             'filename': 'curves.txt'
         },
+
+.. note:: The backfaces of the curves are culled. It is therefore impossible to
+          intersect the curve with a ray that's origin is inside of the curve.
  */
 
 template <typename Float, typename Spectrum>

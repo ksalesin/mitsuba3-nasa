@@ -4276,11 +4276,15 @@ static const char *__doc_mitsuba_MediumInteraction_sigma_s = R"doc()doc";
 
 static const char *__doc_mitsuba_MediumInteraction_sigma_t = R"doc()doc";
 
-static const char *__doc_mitsuba_MediumInteraction_to_local = R"doc(Convert a world-space vector into local shading coordinates)doc";
+static const char *__doc_mitsuba_MediumInteraction_to_local =
+R"doc(Convert a world-space vector into local shading coordinates (defined
+by ``wi``))doc";
 
-static const char *__doc_mitsuba_MediumInteraction_to_world = R"doc(Convert a local shading-space vector into world space)doc";
+static const char *__doc_mitsuba_MediumInteraction_to_world =
+R"doc(Convert a local shading-space (defined by ``wi``) vector into world
+space)doc";
 
-static const char *__doc_mitsuba_MediumInteraction_wi = R"doc(Incident direction in the local shading frame)doc";
+static const char *__doc_mitsuba_MediumInteraction_wi = R"doc(Incident direction in world frame)doc";
 
 static const char *__doc_mitsuba_Medium_Medium = R"doc()doc";
 
@@ -5851,27 +5855,31 @@ static const char *__doc_mitsuba_Properties_PropertiesPrivate = R"doc()doc";
 
 static const char *__doc_mitsuba_Properties_Type = R"doc(Supported types of properties)doc";
 
-static const char *__doc_mitsuba_Properties_Type_AnimatedTransform = R"doc(4x4 transform for homogeneous coordinates)doc";
+static const char *__doc_mitsuba_Properties_Type_AnimatedTransform = R"doc(An animated 4x4 transformation)doc";
 
-static const char *__doc_mitsuba_Properties_Type_Array3f = R"doc(Floating point value)doc";
+static const char *__doc_mitsuba_Properties_Type_Array3f = R"doc(3D array)doc";
 
-static const char *__doc_mitsuba_Properties_Type_Bool = R"doc()doc";
+static const char *__doc_mitsuba_Properties_Type_Bool = R"doc(Boolean value (true/false))doc";
 
-static const char *__doc_mitsuba_Properties_Type_Color = R"doc(An animated 4x4 transformation)doc";
+static const char *__doc_mitsuba_Properties_Type_Color = R"doc(Tristimulus color value)doc";
 
-static const char *__doc_mitsuba_Properties_Type_Float = R"doc(64-bit signed integer)doc";
+static const char *__doc_mitsuba_Properties_Type_Float = R"doc(Floating point value)doc";
 
-static const char *__doc_mitsuba_Properties_Type_Long = R"doc(Boolean value (true/false))doc";
+static const char *__doc_mitsuba_Properties_Type_Long = R"doc(64-bit signed integer)doc";
 
-static const char *__doc_mitsuba_Properties_Type_NamedReference = R"doc(String)doc";
+static const char *__doc_mitsuba_Properties_Type_NamedReference = R"doc(Named reference to another named object)doc";
 
-static const char *__doc_mitsuba_Properties_Type_Object = R"doc(Named reference to another named object)doc";
+static const char *__doc_mitsuba_Properties_Type_Object = R"doc(Arbitrary object)doc";
 
-static const char *__doc_mitsuba_Properties_Type_Pointer = R"doc(Arbitrary object)doc";
+static const char *__doc_mitsuba_Properties_Type_Pointer = R"doc(const void* pointer (for internal communication between plugins))doc";
 
-static const char *__doc_mitsuba_Properties_Type_String = R"doc(Tristimulus color value)doc";
+static const char *__doc_mitsuba_Properties_Type_String = R"doc(String)doc";
 
-static const char *__doc_mitsuba_Properties_Type_Transform = R"doc(3D array)doc";
+static const char *__doc_mitsuba_Properties_Type_Tensor = R"doc(A tensor of arbitrary shape)doc";
+
+static const char *__doc_mitsuba_Properties_Type_Transform3f = R"doc(3x3 transform for homogeneous coordinates)doc";
+
+static const char *__doc_mitsuba_Properties_Type_Transform4f = R"doc(4x4 transform for homogeneous coordinates)doc";
 
 static const char *__doc_mitsuba_Properties_as_string = R"doc(Return one of the parameters (converting it to a string if necessary))doc";
 
@@ -5977,13 +5985,21 @@ static const char *__doc_mitsuba_Properties_set_pointer = R"doc(Store an arbitra
 
 static const char *__doc_mitsuba_Properties_set_string = R"doc(Store a string in the Properties instance)doc";
 
+static const char *__doc_mitsuba_Properties_set_tensor_handle = R"doc(Store a tensor handle in the Properties instance)doc";
+
 static const char *__doc_mitsuba_Properties_set_transform =
 R"doc(Store a 4x4 homogeneous coordinate transformation in the Properties
+instance)doc";
+
+static const char *__doc_mitsuba_Properties_set_transform3f =
+R"doc(Store a 3x3 homogeneous coordinate transformation in the Properties
 instance)doc";
 
 static const char *__doc_mitsuba_Properties_string = R"doc(Retrieve a string value)doc";
 
 static const char *__doc_mitsuba_Properties_string_2 = R"doc(Retrieve a string value (use default value if no entry exists))doc";
+
+static const char *__doc_mitsuba_Properties_tensor = R"doc(Retrieve a tensor)doc";
 
 static const char *__doc_mitsuba_Properties_texture =
 R"doc(Retrieve a texture (if the property is a float, create a uniform
@@ -6391,34 +6407,6 @@ static const char *__doc_mitsuba_Resampler_target_resolution = R"doc(Return the 
 
 static const char *__doc_mitsuba_Resampler_to_string = R"doc(Return a human-readable summary)doc";
 
-static const char *__doc_mitsuba_SDF = R"doc()doc";
-
-static const char *__doc_mitsuba_SDF_2 = R"doc()doc";
-
-static const char *__doc_mitsuba_SDF_3 = R"doc()doc";
-
-static const char *__doc_mitsuba_SDF_4 = R"doc()doc";
-
-static const char *__doc_mitsuba_SDF_5 = R"doc()doc";
-
-static const char *__doc_mitsuba_SDF_SDF = R"doc()doc";
-
-static const char *__doc_mitsuba_SDF_SDF_2 = R"doc()doc";
-
-static const char *__doc_mitsuba_SDF_bbox = R"doc()doc";
-
-static const char *__doc_mitsuba_SDF_class = R"doc()doc";
-
-static const char *__doc_mitsuba_SDF_parameters_changed = R"doc()doc";
-
-static const char *__doc_mitsuba_SDF_smooth = R"doc()doc";
-
-static const char *__doc_mitsuba_SDF_smooth_hessian = R"doc()doc";
-
-static const char *__doc_mitsuba_SDF_smooth_sh = R"doc(//! @{ \name Accessors (normals, hessians, normals, etc))doc";
-
-static const char *__doc_mitsuba_SDF_traverse = R"doc(@})doc";
-
 static const char *__doc_mitsuba_Sampler =
 R"doc(Base class of all sample generators.
 
@@ -6686,7 +6674,7 @@ static const char *__doc_mitsuba_Scene_emitters = R"doc(Return the list of emitt
 
 static const char *__doc_mitsuba_Scene_emitters_2 = R"doc(Return the list of emitters (const version))doc";
 
-static const char *__doc_mitsuba_Scene_emitters_dr = R"doc(Return the list of emitters as an Dr.Jit array)doc";
+static const char *__doc_mitsuba_Scene_emitters_dr = R"doc(Return the list of emitters as a Dr.Jit array)doc";
 
 static const char *__doc_mitsuba_Scene_environment = R"doc(Return the environment emitter (if any))doc";
 
@@ -6750,6 +6738,8 @@ static const char *__doc_mitsuba_Scene_m_environment = R"doc()doc";
 static const char *__doc_mitsuba_Scene_m_integrator = R"doc()doc";
 
 static const char *__doc_mitsuba_Scene_m_sensors = R"doc()doc";
+
+static const char *__doc_mitsuba_Scene_m_sensors_dr = R"doc()doc";
 
 static const char *__doc_mitsuba_Scene_m_shapegroups = R"doc()doc";
 
@@ -7100,11 +7090,13 @@ static const char *__doc_mitsuba_Scene_sensors = R"doc(Return the list of sensor
 
 static const char *__doc_mitsuba_Scene_sensors_2 = R"doc(Return the list of sensors (const version))doc";
 
+static const char *__doc_mitsuba_Scene_sensors_dr = R"doc(Return the list of sensors as a Dr.Jit array)doc";
+
 static const char *__doc_mitsuba_Scene_shapes = R"doc(Return the list of shapes)doc";
 
 static const char *__doc_mitsuba_Scene_shapes_2 = R"doc(Return the list of shapes)doc";
 
-static const char *__doc_mitsuba_Scene_shapes_dr = R"doc(Return the list of shapes as an Dr.Jit array)doc";
+static const char *__doc_mitsuba_Scene_shapes_dr = R"doc(Return the list of shapes as a Dr.Jit array)doc";
 
 static const char *__doc_mitsuba_Scene_shapes_grad_enabled =
 R"doc(Specifies whether any of the scene's shape parameters have tracking
