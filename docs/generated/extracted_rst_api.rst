@@ -1018,6 +1018,23 @@
         cosine foreshortening factor when a non-delta component is sampled). A
         zero spectrum indicates that sampling failed.
 
+    .. py:method:: mitsuba.BSDFPtr.scatter_(self, target, index, mask, permute=False)
+
+        Parameter ``target`` (:py:obj:`mitsuba.BSDFPtr`):
+            *no description available*
+
+        Parameter ``index`` (drjit.llvm.ad.UInt):
+            *no description available*
+
+        Parameter ``mask`` (drjit.llvm.ad.Bool):
+            *no description available*
+
+        Parameter ``permute`` (bool):
+            *no description available*
+
+        Returns → None:
+            *no description available*
+
     .. py:method:: mitsuba.BSDFPtr.select_(arg0, arg1, arg2)
 
         Parameter ``arg0`` (drjit.llvm.ad.Bool):
@@ -4297,6 +4314,13 @@
         Returns → bool:
             *no description available*
 
+    .. py:method:: mitsuba.Emitter.sampling_weight(self)
+
+        The emitter's sampling weight.
+
+        Returns → float:
+            *no description available*
+
 .. py:class:: mitsuba.EmitterFlags
 
     This list of flags is used to classify the different types of
@@ -4675,6 +4699,30 @@
             between the profile and the actual used sampling density function.
             In the case of emitters, the weight will include the emitted
             radiance.
+
+    .. py:method:: mitsuba.EmitterPtr.sampling_weight(self)
+
+        The emitter's sampling weight.
+
+        Returns → drjit.llvm.ad.Float:
+            *no description available*
+
+    .. py:method:: mitsuba.EmitterPtr.scatter_(self, target, index, mask, permute=False)
+
+        Parameter ``target`` (:py:obj:`mitsuba.EmitterPtr`):
+            *no description available*
+
+        Parameter ``index`` (drjit.llvm.ad.UInt):
+            *no description available*
+
+        Parameter ``mask`` (drjit.llvm.ad.Bool):
+            *no description available*
+
+        Parameter ``permute`` (bool):
+            *no description available*
+
+        Returns → None:
+            *no description available*
 
     .. py:method:: mitsuba.EmitterPtr.select_(arg0, arg1, arg2)
 
@@ -10668,7 +10716,7 @@
 
 .. py:data:: mitsuba.MI_VERSION
     :type: str
-    :value: 3.2.1
+    :value: 3.3.0
 
 .. py:data:: mitsuba.MI_VERSION_MAJOR
     :type: int
@@ -10676,11 +10724,11 @@
 
 .. py:data:: mitsuba.MI_VERSION_MINOR
     :type: int
-    :value: 2
+    :value: 3
 
 .. py:data:: mitsuba.MI_VERSION_PATCH
     :type: int
-    :value: 1
+    :value: 0
 
 .. py:data:: mitsuba.MI_YEAR
     :type: str
@@ -12162,6 +12210,23 @@
             will always be valid, except if the ray missed the Medium's
             bounding box.
 
+    .. py:method:: mitsuba.MediumPtr.scatter_(self, target, index, mask, permute=False)
+
+        Parameter ``target`` (:py:obj:`mitsuba.MediumPtr`):
+            *no description available*
+
+        Parameter ``index`` (drjit.llvm.ad.UInt):
+            *no description available*
+
+        Parameter ``mask`` (drjit.llvm.ad.Bool):
+            *no description available*
+
+        Parameter ``permute`` (bool):
+            *no description available*
+
+        Returns → None:
+            *no description available*
+
     .. py:method:: mitsuba.MediumPtr.select_(arg0, arg1, arg2)
 
         Parameter ``arg0`` (drjit.llvm.ad.Bool):
@@ -12983,6 +13048,23 @@
         Returns → :py:obj:`mitsuba.ObjectPtr`:
             *no description available*
 
+    .. py:method:: mitsuba.ObjectPtr.scatter_(self, target, index, mask, permute=False)
+
+        Parameter ``target`` (:py:obj:`mitsuba.ObjectPtr`):
+            *no description available*
+
+        Parameter ``index`` (drjit.llvm.ad.UInt):
+            *no description available*
+
+        Parameter ``mask`` (drjit.llvm.ad.Bool):
+            *no description available*
+
+        Parameter ``permute`` (bool):
+            *no description available*
+
+        Returns → None:
+            *no description available*
+
     .. py:method:: mitsuba.ObjectPtr.select_(arg0, arg1, arg2)
 
         Parameter ``arg0`` (drjit.llvm.ad.Bool):
@@ -13680,6 +13762,23 @@
 
         Returns → Tuple[:py:obj:`mitsuba.Vector3f`, drjit.llvm.ad.Float]:
             A sampled direction wo
+
+    .. py:method:: mitsuba.PhaseFunctionPtr.scatter_(self, target, index, mask, permute=False)
+
+        Parameter ``target`` (:py:obj:`mitsuba.PhaseFunctionPtr`):
+            *no description available*
+
+        Parameter ``index`` (drjit.llvm.ad.UInt):
+            *no description available*
+
+        Parameter ``mask`` (drjit.llvm.ad.Bool):
+            *no description available*
+
+        Parameter ``permute`` (bool):
+            *no description available*
+
+        Returns → None:
+            *no description available*
 
     .. py:method:: mitsuba.PhaseFunctionPtr.select_(arg0, arg1, arg2)
 
@@ -17339,23 +17438,44 @@
 
     .. py:method:: mitsuba.Sensor.sample_ray_differential(self, time, sample1, sample2, sample3, active=True)
 
+        Importance sample a ray differential proportional to the sensor's
+        sensitivity profile.
+
+        The sensor profile is a six-dimensional quantity that depends on time,
+        wavelength, surface position, and direction. This function takes a
+        given time value and five uniformly distributed samples on the
+        interval [0, 1] and warps them so that the returned ray the profile.
+        Any discrepancies between ideal and actual sampled profile are
+        absorbed into a spectral importance weight that is returned along with
+        the ray.
+
+        In contrast to Endpoint::sample_ray(), this function returns
+        differentials with respect to the X and Y axis in screen space.
+
         Parameter ``time`` (drjit.llvm.ad.Float):
-            *no description available*
+            The scene time associated with the ray_differential to be sampled
 
         Parameter ``sample1`` (drjit.llvm.ad.Float):
-            *no description available*
+            A uniformly distributed 1D value that is used to sample the
+            spectral dimension of the sensitivity profile.
 
         Parameter ``sample2`` (:py:obj:`mitsuba.Point2f`):
-            *no description available*
+            This argument corresponds to the sample position in fractional
+            pixel coordinates relative to the crop window of the underlying
+            film.
 
         Parameter ``sample3`` (:py:obj:`mitsuba.Point2f`):
-            *no description available*
+            A uniformly distributed sample on the domain ``[0,1]^2``. This
+            argument determines the position on the aperture of the sensor.
+            This argument is ignored if ``needs_sample_3() == false``.
 
         Parameter ``active`` (drjit.llvm.ad.Bool):
             Mask to specify active lanes.
 
         Returns → Tuple[:py:obj:`mitsuba.RayDifferential3f`, :py:obj:`mitsuba.Color3f`]:
-            *no description available*
+            The sampled ray differential and (potentially spectrally varying)
+            importance weights. The latter account for the difference between
+            the sensor profile and the actual used sampling density function.
 
     .. py:method:: mitsuba.Sensor.sampler(self)
 
@@ -17666,6 +17786,47 @@
             weights. The latter account for the difference between the profile
             and the actual used sampling density function.
 
+    .. py:method:: mitsuba.SensorPtr.sample_ray_differential(self, time, sample1, sample2, sample3, active=True)
+
+        Importance sample a ray differential proportional to the sensor's
+        sensitivity profile.
+
+        The sensor profile is a six-dimensional quantity that depends on time,
+        wavelength, surface position, and direction. This function takes a
+        given time value and five uniformly distributed samples on the
+        interval [0, 1] and warps them so that the returned ray the profile.
+        Any discrepancies between ideal and actual sampled profile are
+        absorbed into a spectral importance weight that is returned along with
+        the ray.
+
+        In contrast to Endpoint::sample_ray(), this function returns
+        differentials with respect to the X and Y axis in screen space.
+
+        Parameter ``time`` (drjit.llvm.ad.Float):
+            The scene time associated with the ray_differential to be sampled
+
+        Parameter ``sample1`` (drjit.llvm.ad.Float):
+            A uniformly distributed 1D value that is used to sample the
+            spectral dimension of the sensitivity profile.
+
+        Parameter ``sample2`` (:py:obj:`mitsuba.Point2f`):
+            This argument corresponds to the sample position in fractional
+            pixel coordinates relative to the crop window of the underlying
+            film.
+
+        Parameter ``sample3`` (:py:obj:`mitsuba.Point2f`):
+            A uniformly distributed sample on the domain ``[0,1]^2``. This
+            argument determines the position on the aperture of the sensor.
+            This argument is ignored if ``needs_sample_3() == false``.
+
+        Parameter ``active`` (drjit.llvm.ad.Bool):
+            Mask to specify active lanes.
+
+        Returns → Tuple[:py:obj:`mitsuba.RayDifferential3f`, :py:obj:`mitsuba.Color3f`]:
+            The sampled ray differential and (potentially spectrally varying)
+            importance weights. The latter account for the difference between
+            the sensor profile and the actual used sampling density function.
+
     .. py:method:: mitsuba.SensorPtr.sample_wavelengths(self, si, sample, active=True)
 
         Importance sample a set of wavelengths according to the endpoint's
@@ -17703,6 +17864,23 @@
             between the profile and the actual used sampling density function.
             In the case of emitters, the weight will include the emitted
             radiance.
+
+    .. py:method:: mitsuba.SensorPtr.scatter_(self, target, index, mask, permute=False)
+
+        Parameter ``target`` (:py:obj:`mitsuba.SensorPtr`):
+            *no description available*
+
+        Parameter ``index`` (drjit.llvm.ad.UInt):
+            *no description available*
+
+        Parameter ``mask`` (drjit.llvm.ad.Bool):
+            *no description available*
+
+        Parameter ``permute`` (bool):
+            *no description available*
+
+        Returns → None:
+            *no description available*
 
     .. py:method:: mitsuba.SensorPtr.select_(arg0, arg1, arg2)
 
@@ -17878,8 +18056,6 @@
         Returns → :py:obj:`mitsuba.Color3f`:
             An unpolarized spectral power distribution or reflectance value
 
-        The default implementation throws an exception.
-
     .. py:method:: mitsuba.Shape.eval_attribute_1(self, name, si, active=True)
 
         Monochromatic evaluation of a shape attribute at the given surface
@@ -17901,8 +18077,6 @@
         Returns → drjit.llvm.ad.Float:
             An scalar intensity or reflectance value
 
-        The default implementation throws an exception.
-
     .. py:method:: mitsuba.Shape.eval_attribute_3(self, name, si, active=True)
 
         Trichromatic evaluation of a shape attribute at the given surface
@@ -17923,8 +18097,6 @@
 
         Returns → :py:obj:`mitsuba.Color3f`:
             An trichromatic intensity or reflectance value
-
-        The default implementation throws an exception.
 
     .. py:method:: mitsuba.Shape.eval_parameterization(self, uv, ray_flags=14, active=True)
 
@@ -17951,6 +18123,19 @@
         Return the medium that lies on the exterior of this shape
 
         Returns → :py:obj:`mitsuba.Medium`:
+            *no description available*
+
+    .. py:method:: mitsuba.Shape.has_attribute(self, name, active=True)
+
+        Returns whether this shape contains the specified attribute.
+
+        Parameter ``name`` (str):
+            Name of the attribute
+
+        Parameter ``active`` (drjit.llvm.ad.Bool):
+            Mask to specify active lanes.
+
+        Returns → drjit.llvm.ad.Bool:
             *no description available*
 
     .. py:method:: mitsuba.Shape.id(self)
@@ -18305,8 +18490,6 @@
         Returns → :py:obj:`mitsuba.Color3f`:
             An unpolarized spectral power distribution or reflectance value
 
-        The default implementation throws an exception.
-
     .. py:method:: mitsuba.ShapePtr.eval_attribute_1(self, name, si, active=True)
 
         Monochromatic evaluation of a shape attribute at the given surface
@@ -18328,8 +18511,6 @@
         Returns → drjit.llvm.ad.Float:
             An scalar intensity or reflectance value
 
-        The default implementation throws an exception.
-
     .. py:method:: mitsuba.ShapePtr.eval_attribute_3(self, name, si, active=True)
 
         Trichromatic evaluation of a shape attribute at the given surface
@@ -18350,8 +18531,6 @@
 
         Returns → :py:obj:`mitsuba.Color3f`:
             An trichromatic intensity or reflectance value
-
-        The default implementation throws an exception.
 
     .. py:method:: mitsuba.ShapePtr.eval_parameterization(self, uv, ray_flags=14, active=True)
 
@@ -18395,6 +18574,19 @@
             *no description available*
 
         Returns → :py:obj:`mitsuba.ShapePtr`:
+            *no description available*
+
+    .. py:method:: mitsuba.ShapePtr.has_attribute(self, name, active=True)
+
+        Returns whether this shape contains the specified attribute.
+
+        Parameter ``name`` (str):
+            Name of the attribute
+
+        Parameter ``active`` (drjit.llvm.ad.Bool):
+            Mask to specify active lanes.
+
+        Returns → drjit.llvm.ad.Bool:
             *no description available*
 
     .. py:method:: mitsuba.ShapePtr.interior_medium(self)
@@ -18628,6 +18820,23 @@
 
         Returns → :py:obj:`mitsuba.PositionSample`:
             A PositionSample instance describing the generated sample
+
+    .. py:method:: mitsuba.ShapePtr.scatter_(self, target, index, mask, permute=False)
+
+        Parameter ``target`` (:py:obj:`mitsuba.ShapePtr`):
+            *no description available*
+
+        Parameter ``index`` (drjit.llvm.ad.UInt):
+            *no description available*
+
+        Parameter ``mask`` (drjit.llvm.ad.Bool):
+            *no description available*
+
+        Parameter ``permute`` (bool):
+            *no description available*
+
+        Returns → None:
+            *no description available*
 
     .. py:method:: mitsuba.ShapePtr.select_(arg0, arg1, arg2)
 
@@ -26086,7 +26295,7 @@
         Parameter ``params`` (:py:class:`dict`):
             Optional dictionary-like object containing parameters to optimize.
 
-        Parameter ``params`` (~typing.Optional[dict]):
+        Parameter ``params`` (dict | None):
             *no description available*
 
         
@@ -26097,6 +26306,71 @@
     .. py:method:: mitsuba.ad.Adam.reset()
 
         Zero-initializes the internal state associated with a parameter
+
+.. py:class:: mitsuba.ad.LargeSteps
+
+    Implementation of the algorithm described in the paper "Large Steps in
+    Inverse Rendering of Geometry" (Nicolet et al. 2021).
+
+    It consists in computing a latent variable u = (I + λL) v from the vertex
+    positions v, where L is the (combinatorial) Laplacian matrix of the input
+    mesh. Optimizing these variables instead of the vertex positions allows to
+    diffuse gradients on the surface, which helps fight their sparsity.
+
+    This class builds the system matrix (I + λL) for a given mesh and hyper
+    parameter λ, and computes its Cholesky factorization.
+
+    It can then convert vertex coordinates back and forth between their
+    cartesian and differential representations. Both transformations are
+    differentiable, meshes can therefore be optimized by using the differential
+    form as a latent variable.
+
+    .. py:method:: __init__()
+
+        Build the system matrix and its Cholesky factorization.
+        
+        Parameter ``verts`` (``mitsuba.Float``):
+            Vertex coordinates of the mesh.
+        
+        Parameter ``faces`` (``mitsuba.UInt``):
+            Face indices of the mesh.
+        
+        Parameter ``lambda_`` (``float``):
+            The hyper parameter λ. This controls how much gradients are diffused
+            on the surface. this value should increase with the tesselation of
+            the mesh.
+        
+
+        
+    .. py:method:: mitsuba.ad.LargeSteps.to_differential()
+
+        Convert vertex coordinates to their differential form: u = (I + λL) v.
+
+        This method typically only needs to be called once per mesh, to obtain
+        the latent variable before optimization.
+
+        Parameter ``v`` (``mitsuba.Float``):
+            Vertex coordinates of the mesh.
+
+        Returns ``mitsuba.Float`:
+            Differential form of v.
+
+    .. py:method:: mitsuba.ad.LargeSteps.from_differential()
+
+        Convert differential coordinates back to their cartesian form: v = (I +
+        λL)⁻¹ u.
+
+        This is done by solving the linear system (I + λL) v = u using the
+        previously computed Cholesky factorization.
+
+        This method is typically called at each iteration of the optimization,
+        to update the mesh coordinates before rendering.
+
+        Parameter ``u`` (``mitsuba.Float``):
+            Differential form of v.
+
+        Returns ``mitsuba.Float`:
+            Vertex coordinates of the mesh.
 
 .. py:class:: mitsuba.ad.Optimizer
 
@@ -26167,7 +26441,7 @@
         Parameter ``params`` (:py:class:`dict`):
             Optional dictionary-like object containing parameters to optimize.
 
-        Parameter ``params`` (~typing.Optional[dict]):
+        Parameter ``params`` (dict | None):
             *no description available*
 
         
@@ -26768,6 +27042,53 @@
 
     Compute the Multiple Importance Sampling (MIS) weight given the densities
     of two sampling strategies according to the power heuristic.
+
+.. py:class:: mitsuba.ad.largesteps.SolveCholesky
+
+    DrJIT custom operator to solve a linear system using a Cholesky factorization.
+
+    .. py:method:: mitsuba.ad.largesteps.SolveCholesky.eval()
+
+        Evaluate the custom function in primal mode.
+
+        The inputs will be detached from the AD graph, and the output *must* also be
+        detached.
+
+        .. danger::
+
+            This method must be overriden, no default implementation provided.
+
+        Returns → object:
+            *no description available*
+
+    .. py:method:: mitsuba.ad.largesteps.SolveCholesky.forward()
+
+        Evaluated forward-mode derivatives.
+
+        .. danger::
+
+            This method must be overriden, no default implementation provided.
+
+    .. py:method:: mitsuba.ad.largesteps.SolveCholesky.backward()
+
+        Evaluated backward-mode derivatives.
+
+        .. danger::
+
+            This method must be overriden, no default implementation provided.
+
+    .. py:method:: mitsuba.ad.largesteps.SolveCholesky.name()
+
+        Return a descriptive name of the ``CustomOp`` instance.
+
+        The name returned by this method is used in the GraphViz output.
+
+        If not overriden, this method returns ``"CustomOp[unnamed]"``.
+
+.. py:function:: mitsuba.ad.largesteps.mesh_laplacian()
+
+    Compute the index and data arrays of the (combinatorial) Laplacian matrix of
+    a given mesh.
 
 .. py:function:: mitsuba.ad.reparameterize_ray(scene, rng, params, ray, num_rays=4, kappa=100000.0, exponent=3.0, antithetic=False, unroll=False, active=True)
 
@@ -29953,6 +30274,14 @@
     Return currently enabled variant
 
     Returns → str:
+        *no description available*
+
+.. py:function:: mitsuba.variant_context()
+
+    Temporarily override the active variant. Arguments are interpreted as
+    they are in :func:`mitsuba.set_variant`.
+
+    Returns → None:
         *no description available*
 
 .. py:function:: mitsuba.variants()
