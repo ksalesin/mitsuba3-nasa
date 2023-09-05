@@ -130,11 +130,11 @@ public:
         m_distr.update();
     }
 
-    std::pair<Vector3f, Spectrum> sample(const PhaseFunctionContext &ctx,
-                                         const MediumInteraction3f &mi,
-                                         Float /* sample1 */,
-                                         const Point2f &sample2,
-                                         Mask active) const override {
+    std::tuple<Vector3f, Spectrum, Float> sample(const PhaseFunctionContext &ctx,
+                                                 const MediumInteraction3f &mi,
+                                                 Float /* sample1 */,
+                                                 const Point2f &sample2,
+                                                 Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionSample, active);
 
         // Sample a direction in physics convention.
@@ -156,18 +156,16 @@ public:
         // and our mi.sh_frame = ray.d, not -ray.d (as in the base Mitsuba 3), to be consistent with to_world_mueller
         // wo = -mi.to_world(wo);
 
-        Spectrum phase_val = eval(ctx, mi, wo, active);
+        auto [ phase_val, phase_pdf ] = eval_pdf(ctx, mi, wo, active);
+        Spectrum phase_weight = phase_val * dr::rcp(phase_pdf);
 
-        // Retrieve the PDF value from the physics convention-sampled angle
-        Float pdf = m_distr.eval_pdf_normalized(cos_theta_prime, active) *
-                    dr::InvTwoPi<ScalarFloat>;
-
-        return { wo, (phase_val / pdf) & active };
+        return { wo, phase_weight, phase_pdf };
     }
 
-    Spectrum eval(const PhaseFunctionContext &ctx,
-                  const MediumInteraction3f &mi, const Vector3f &wo,
-                  Mask active) const override {
+    std::pair<Spectrum, Float> eval_pdf(const PhaseFunctionContext &ctx,
+                                        const MediumInteraction3f &mi,
+                                        const Vector3f &wo,
+                                        Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionEvaluate, active);
 
         // The data is laid out in physics convention
@@ -214,18 +212,10 @@ public:
             dr::masked(phase_val, dr::isnan(phase_val)) = depolarizer<Spectrum>(0.f);
         }
 
-        return phase_val;
-    }
-
-    Float pdf(const PhaseFunctionContext & /* ctx */,
-               const MediumInteraction3f &mi, const Vector3f &wo,
-               Mask active) const override {
-        MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionEvaluate, active);
-
-        Float cos_theta = -dot(wo, mi.wi);
         Float pdf = m_distr.eval_pdf_normalized(cos_theta, active) 
                     * dr::InvTwoPi<ScalarFloat>;
-        return pdf;
+
+        return { phase_val, pdf };
     }
     
     std::string to_string() const override {

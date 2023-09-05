@@ -94,11 +94,11 @@ public:
         return phase_val;
     }
 
-    std::pair<Vector3f, Spectrum> sample(const PhaseFunctionContext &ctx,
-                                         const MediumInteraction3f &mi,
-                                         Float /* sample1 */,
-                                         const Point2f &sample,
-                                         Mask active) const override {
+    std::tuple<Vector3f, Spectrum, Float> sample(const PhaseFunctionContext &ctx,
+                                                 const MediumInteraction3f &mi,
+                                                 Float /* sample1 */,
+                                                 const Point2f &sample,
+                                                 Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionSample, active);
 
         Float z   = 2.f * (2.f * sample.x() - 1.f);
@@ -111,24 +111,20 @@ public:
 
         auto wo = Vector3f( sin_theta * cos_phi, sin_theta * sin_phi, cos_theta );
         Float pdf = eval_rayleigh_pdf(cos_theta);
+        Spectrum phase_weight = eval_rayleigh(ctx, mi, wo, cos_theta) * dr::rcp(pdf);
 
-        Spectrum phase_val = eval_rayleigh(ctx, mi, wo, cos_theta) * dr::rcp(pdf);
-
-        return { wo, phase_val };
+        return { wo, phase_weight, pdf };
     }
 
-    Spectrum eval(const PhaseFunctionContext &ctx,
-               const MediumInteraction3f &mi, const Vector3f &wo,
-               Mask active) const override {
+    std::pair<Spectrum, Float> eval_pdf(const PhaseFunctionContext &ctx,
+                                        const MediumInteraction3f &mi,
+                                        const Vector3f &wo,
+                                        Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionEvaluate, active);
-        return eval_rayleigh(ctx, mi, wo, dot(wo, -mi.wi));
-    }
-
-    Float pdf(const PhaseFunctionContext &/* ctx */,
-               const MediumInteraction3f &mi, const Vector3f &wo,
-               Mask active) const override {
-        MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionEvaluate, active);
-        return eval_rayleigh_pdf(dot(wo, -mi.wi));
+        Float cos_theta = dot(wo, -mi.wi);
+        Spectrum phase_val = eval_rayleigh(ctx, mi, wo, cos_theta);
+        Float pdf = eval_rayleigh_pdf(cos_theta);
+        return { phase_val, pdf };
     }
 
     std::string to_string() const override { return "RayleighPhaseFunction[]"; }

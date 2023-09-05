@@ -166,7 +166,7 @@ class PRBVolpathIntegrator(RBIntegrator):
                 mei.t[active_medium & (si.t < mei.t)] = dr.inf
 
                 # Evaluate ratio of transmittance and free-flight PDF
-                tr, free_flight_pdf = medium.eval_tr_and_pdf(mei, si, active_medium)
+                tr, free_flight_pdf = medium.transmittance_eval_pdf(mei, si, active_medium)
                 tr_pdf = index_spectrum(free_flight_pdf, channel)
                 weight = mi.Spectrum(1.0)
                 weight[active_medium] *= dr.select(tr_pdf > 0.0, tr / dr.detach(tr_pdf), 0.0)
@@ -208,12 +208,13 @@ class PRBVolpathIntegrator(RBIntegrator):
 
                 valid_ray |= act_medium_scatter
                 with dr.suspend_grad():
-                    wo, phase_pdf = phase.sample(phase_ctx, mei, sampler.next_1d(act_medium_scatter), sampler.next_2d(act_medium_scatter), act_medium_scatter)
+                    wo, phase_weight, phase_pdf = phase.sample(phase_ctx, mei, sampler.next_1d(act_medium_scatter), sampler.next_2d(act_medium_scatter), act_medium_scatter)
                 act_medium_scatter &= phase_pdf > 0.0
                 new_ray = mei.spawn_ray(wo)
                 ray[act_medium_scatter] = new_ray
                 needs_intersection |= act_medium_scatter
                 last_scatter_direction_pdf[act_medium_scatter] = phase_pdf
+                throughput[act_medium_scatter] *= phase_weight
 
                 #--------------------- Surface Interactions ---------------------
                 active_surface |= escaped_medium
@@ -259,9 +260,9 @@ class PRBVolpathIntegrator(RBIntegrator):
 
                     # Query the BSDF for that emitter-sampled direction
                     bsdf_val, bsdf_pdf = bsdf.eval_pdf(ctx, si, si.to_local(ds.d), active_e_surface)
-                    phase_val = phase.eval(phase_ctx, mei, ds.d, active_e_medium)
+                    phase_val, phase_pdf = phase.eval_pdf(phase_ctx, mei, ds.d, active_e_medium)
                     nee_weight = dr.select(active_e_surface, bsdf_val, phase_val)
-                    nee_directional_pdf = dr.select(ds.delta, 0.0, dr.select(active_e_surface, bsdf_pdf, phase_val))
+                    nee_directional_pdf = dr.select(ds.delta, 0.0, dr.select(active_e_surface, bsdf_pdf, phase_pdf))
 
                     contrib = throughput * nee_weight * mis_weight(ds.pdf, nee_directional_pdf) * emitted
                     L[active_e] += dr.detach(contrib if is_primal else -contrib)
@@ -331,7 +332,8 @@ class PRBVolpathIntegrator(RBIntegrator):
         medium = dr.select(active, medium, dr.zeros(mi.MediumPtr))
         medium[(active_surface & si.is_medium_transition())] = si.target_medium(ds.d)
 
-        ray = ref_interaction.spawn_ray(ds.d)
+        ray = ref_interaction.spawn_ray_to(ds.p)
+        max_dist = mi.Float(ray.maxt)
         total_dist = mi.Float(0.0)
         si = dr.zeros(mi.SurfaceInteraction3f)
         needs_intersection = mi.Bool(True)
@@ -340,7 +342,7 @@ class PRBVolpathIntegrator(RBIntegrator):
                        state=lambda: (sampler, active, medium, ray, total_dist,
                                       needs_intersection, si, transmittance))
         while loop(active):
-            remaining_dist = ds.dist * (1.0 - mi.math.ShadowEpsilon) - total_dist
+            remaining_dist = max_dist - total_dist
             ray.maxt = dr.detach(remaining_dist)
             active &= remaining_dist > 0.0
 
@@ -363,7 +365,7 @@ class PRBVolpathIntegrator(RBIntegrator):
             if self.nee_handle_homogeneous:
                 active_homogeneous = active_medium & medium.is_homogeneous()
                 mei.t[active_homogeneous] = dr.minimum(remaining_dist, si.t)
-                tr_multiplier[active_homogeneous] = medium.eval_tr_and_pdf(mei, si, active_homogeneous)[0]
+                tr_multiplier[active_homogeneous] = medium.transmittance_eval_pdf(mei, si, active_homogeneous)[0]
                 mei.t[active_homogeneous] = dr.inf
 
             escaped_medium = active_medium & ~mei.is_valid()

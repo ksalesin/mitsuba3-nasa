@@ -486,18 +486,18 @@ public:
         return phase_val;
     }
 
-    std::pair<Vector3f, Spectrum> sample(const PhaseFunctionContext & ctx,
-                                      const MediumInteraction3f & mi,
-                                      Float /* sample1 */,
-                                      const Point2f & sample2,
-                                      Mask active) const override {
+    std::tuple<Vector3f, Spectrum, Float> sample(const PhaseFunctionContext &ctx,
+                                                 const MediumInteraction3f &mi,
+                                                 Float /* sample1 */,
+                                                 const Point2f &sample,
+                                                 Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionSample, active);
         
         // Workaround for now, which wavelength would we choose for full spectral renderings?
         Float params[1] = { mi.wavelengths[0] };
 
         // Draw direction sample
-        auto [u_wo, pdf] = m_pf.sample(sample2, params, active);
+        auto [u_wo, pdf] = m_pf.sample(sample, params, active);
 
         // Unit coordinates -> spherical coordinates
         Float theta_o = u2theta(u_wo.x()),
@@ -513,21 +513,18 @@ public:
                     cos_theta_o);
 
         // Get Mueller matrix (TODO: use tabulated phase function instead)
+        Spectrum phase_weight = eval_mie(ctx, mi, wo, active) * dr::rcp(pdf);
+
+        return { wo, phase_weight, pdf };
+    }
+
+    std::pair<Spectrum, Float> eval_pdf(const PhaseFunctionContext &ctx,
+                                        const MediumInteraction3f & mi,
+                                        const Vector3f &wo,
+                                        Mask active) const override {
+        MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionEvaluate, active);
         Spectrum phase_val = eval_mie(ctx, mi, wo, active);
 
-        return { wo, (phase_val / pdf) & active };
-    }
-
-    Spectrum eval(const PhaseFunctionContext &ctx, const MediumInteraction3f &mi,
-               const Vector3f &wo, Mask active) const override {
-        MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionEvaluate, active);
-        return eval_mie(ctx, mi, wo, active);
-    }
-
-     Float pdf(const PhaseFunctionContext &ctx, const MediumInteraction3f &mi,
-               const Vector3f &wo, Mask active) const override {
-        MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionEvaluate, active);
-        
         // Cartesian coordinates -> spherical coordinates
         Float theta_o = elevation(wo),
               phi_o   = dr::atan2(wo.y(), wo.x());
@@ -539,7 +536,7 @@ public:
 
         auto [sample, pdf] = m_pf.invert(u_wo, params, active);
 
-        return dr::select(active, pdf, 0.f);
+        return { phase_val, pdf };
     }
 
     void traverse(TraversalCallback *callback) override {

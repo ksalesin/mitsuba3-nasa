@@ -22,19 +22,7 @@ enum class PhaseFunctionFlags : uint32_t {
     Microflake  = 0x04
 };
 
-constexpr uint32_t operator|(PhaseFunctionFlags f1, PhaseFunctionFlags f2) {
-    return (uint32_t) f1 | (uint32_t) f2;
-}
-constexpr uint32_t operator|(uint32_t f1, PhaseFunctionFlags f2) { return f1 | (uint32_t) f2; }
-constexpr uint32_t operator&(PhaseFunctionFlags f1, PhaseFunctionFlags f2) {
-    return (uint32_t) f1 & (uint32_t) f2;
-}
-constexpr uint32_t operator&(uint32_t f1, PhaseFunctionFlags f2) { return f1 & (uint32_t) f2; }
-constexpr uint32_t operator~(PhaseFunctionFlags f1) { return ~(uint32_t) f1; }
-constexpr uint32_t operator+(PhaseFunctionFlags e) { return (uint32_t) e; }
-template <typename UInt32> constexpr auto has_flag(UInt32 flags, PhaseFunctionFlags f) {
-    return (flags & (uint32_t) f) != 0;
-}
+MI_DECLARE_ENUM_OPERATORS(PhaseFunctionFlags)
 
 /**
  * \brief Context data structure for phase function evaluation and sampling
@@ -141,20 +129,16 @@ public:
      *     A uniformly distributed sample on \f$[0,1]^2\f$. It is
      *     used to generate the sampled direction.
      *
-     * \return A tuple (wo, value) consisting of
-     *
-     *     wo:    Normalized outgoing direction.
-     *
-     *     value: The phase function value divided by sampling pdf.
+     * \return A sampled direction wo and its corresponding weight and PDF
      */
-    virtual std::pair<Vector3f, Spectrum> sample(const PhaseFunctionContext &ctx,
-                                                 const MediumInteraction3f &mi,
-                                                 Float sample1, const Point2f &sample2,
-                                                 Mask active = true) const = 0;
+    virtual std::tuple<Vector3f, Spectrum, Float> sample(const PhaseFunctionContext &ctx,
+                                                         const MediumInteraction3f &mi,
+                                                         Float sample1, const Point2f &sample2,
+                                                         Mask active = true) const = 0;
     /**
-     * \brief Evaluates the phase function model
+     * \brief Evaluates the phase function model value and PDF
      *
-     * The function returns the value (which equals the PDF) of the phase
+     * The function returns the value (which often equals the PDF) of the phase
      * function in the query direction.
      *
      * \param ctx
@@ -169,36 +153,12 @@ public:
      * \param wo
      *     An outgoing direction to evaluate.
      *
-     * \return The value of the phase function in direction wo
+     * \return The value and the sampling PDF of the phase function in direction wo
      */
-    virtual Spectrum eval(const PhaseFunctionContext &ctx, const MediumInteraction3f &mi,
-                          const Vector3f &wo, Mask active = true) const = 0;
-
-    /**
-     * \brief Compute the probability per unit solid angle of sampling a
-     * given direction
-     *
-     * This method provides access to the probability density that would result
-     * when supplying the same Phase Function context and medium interaction data
-     * structures to the \ref sample() method. 
-     *
-     * Note that the incident direction does not need to be explicitly
-     * specified. It is obtained from the field <tt>mi.wi</tt>.
-     *
-     * \param ctx
-     *     A context data structure describing which lobes to evalute,
-     *     and whether radiance or importance are being transported.
-     *
-     * \param mi
-     *     A medium interaction data structure describing the underlying
-     *     medium position. The incident direction is obtained from
-     *     the field <tt>mi.wi</tt>.
-     *
-     * \param wo
-     *     The outgoing direction
-     */
-    virtual Float pdf(const PhaseFunctionContext &ctx, const MediumInteraction3f &mi,
-                      const Vector3f &wo, Mask active = true) const = 0;
+    virtual std::pair<Spectrum, Float> eval_pdf(const PhaseFunctionContext &ctx,
+                                                const MediumInteraction3f &mi,
+                                                const Vector3f &wo,
+                                                Mask active = true) const = 0;
 
     /**
      * \brief Returns the microflake projected area
@@ -290,8 +250,7 @@ NAMESPACE_END(mitsuba)
 
 DRJIT_VCALL_TEMPLATE_BEGIN(mitsuba::PhaseFunction)
     DRJIT_VCALL_METHOD(sample)
-    DRJIT_VCALL_METHOD(eval)
-    DRJIT_VCALL_METHOD(pdf)
+    DRJIT_VCALL_METHOD(eval_pdf)
     DRJIT_VCALL_METHOD(projected_area)
     DRJIT_VCALL_METHOD(max_projected_area)
     DRJIT_VCALL_GETTER(flags, uint32_t)

@@ -9,8 +9,6 @@ add_plugin(ptracer    ptracer.cpp)
 add_plugin(stokes     stokes.cpp)
 add_plugin(volpath    volpath.cpp)
 add_plugin(volpathaos volpathaos.cpp)
-add_plugin(volpathaos_naivenee volpathaos_naivenee.cpp)
-add_plugin(volpathaos_fanciernee volpathaos_fanciernee.cpp)
 add_plugin(volpathmis volpathmis.cpp)
 
 set(MI_PLUGIN_TARGETS "${MI_PLUGIN_TARGETS}" PARENT_SCOPE)

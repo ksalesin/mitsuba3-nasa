@@ -144,7 +144,7 @@ public:
 
                 dr::masked(mei.t, active_medium && (si.t < mei.t)) = dr::Infinity<Float>;
                 if (dr::any_or<true>(is_spectral)) {
-                    auto [tr, free_flight_pdf] = medium->eval_tr_and_pdf(mei, si, is_spectral);
+                    auto [tr, free_flight_pdf] = medium->transmittance_eval_pdf(mei, si, is_spectral);
                     Float tr_pdf = index_spectrum(free_flight_pdf, channel);
                     dr::masked(throughput, is_spectral) *= dr::select(tr_pdf > 0.f, tr / tr_pdf, 0.f);
                 }
@@ -196,21 +196,19 @@ public:
                 if (dr::any_or<true>(active_e)) {
                     auto [emitted, ds] = sample_emitter(mei, scene, sampler, medium, channel, refractive_bsdf, active_e);
                     Vector3f wo        = mei.to_local(ds.d);
-                    Spectrum phase_val = phase->eval(phase_ctx, mei, wo, active_e);
+                    auto [phase_val, phase_pdf] = phase->eval_pdf(phase_ctx, mei, wo, active_e);
                     phase_val = mei.to_world_mueller(phase_val, -wo, mei.wi);
-                    Float phase_pdf = phase->pdf(phase_ctx, mei, wo, active_e);
                     dr::masked(result, active_e) += throughput * phase_val * emitted;
                 }
 
                 // ------------------ Phase function sampling -----------------
-                auto [wo, phase_val] = phase->sample(phase_ctx, mei,
+                auto [wo, phase_weight, phase_pdf] = phase->sample(phase_ctx, mei,
                     sampler->next_1d(act_medium_scatter),
                     sampler->next_2d(act_medium_scatter),
                     act_medium_scatter);
-                phase_val = mei.to_world_mueller(phase_val, -wo, mei.wi);
-                Float phase_pdf = phase->pdf(phase_ctx, mei, wo, act_medium_scatter);
+                phase_weight = mei.to_world_mueller(phase_weight, -wo, mei.wi);
                 act_medium_scatter &= phase_pdf > 0.f;
-                dr::masked(throughput, act_medium_scatter) *= phase_val;
+                dr::masked(throughput, act_medium_scatter) *= phase_weight;
 
                 Ray3f new_ray  = mei.spawn_ray(mei.to_world(wo));
                 dr::masked(ray, act_medium_scatter) = new_ray;
