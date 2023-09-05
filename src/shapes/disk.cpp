@@ -85,6 +85,7 @@ public:
                    mark_dirty, get_children_string, parameters_grad_enabled)
     MI_IMPORT_TYPES()
 
+    using typename Base::ScalarIndex;
     using typename Base::ScalarSize;
 
     Disk(const Properties &props) : Base(props) {
@@ -134,15 +135,17 @@ public:
 
 
     ScalarBoundingBox3f bbox() const override {
-        ScalarBoundingBox3f bbox;
         ScalarTransform4f to_world = m_to_world.scalar();
 
-        bbox.expand(to_world.transform_affine(ScalarPoint3f(-1.f, -1.f, 0.f)));
-        bbox.expand(to_world.transform_affine(ScalarPoint3f(-1.f,  1.f, 0.f)));
-        bbox.expand(to_world.transform_affine(ScalarPoint3f( 1.f, -1.f, 0.f)));
-        bbox.expand(to_world.transform_affine(ScalarPoint3f( 1.f,  1.f, 0.f)));
+        ScalarPoint3f c = to_world * ScalarPoint3f(0.f, 0.f, 0.f);
+        ScalarVector3f u = to_world * ScalarVector3f(1.f, 0.f, 0.f);
+        ScalarVector3f v = to_world * ScalarVector3f(0.f, 1.f, 0.f);
+        ScalarVector3f e = dr::sqrt(dr::sqr(u) + dr::sqr(v));
 
-        return bbox;
+        return ScalarBoundingBox3f(
+            dr::minimum(c - e, c + e),
+            dr::maximum(c - e, c + e)
+        );
     }
 
     Float surface_area() const override {
@@ -192,7 +195,7 @@ public:
 
         Ray3f ray(p + m_frame.n, -m_frame.n, 0, Wavelength(0));
 
-        PreliminaryIntersection3f pi = ray_intersect_preliminary(ray, active);
+        PreliminaryIntersection3f pi = ray_intersect_preliminary(ray, 0, active);
         active &= pi.is_valid();
 
         if (dr::none_or<false>(active))
@@ -216,6 +219,7 @@ public:
     std::tuple<FloatP, Point<FloatP, 2>, dr::uint32_array_t<FloatP>,
                dr::uint32_array_t<FloatP>>
     ray_intersect_preliminary_impl(const Ray3fP &ray_,
+                                   ScalarIndex /*prim_index*/,
                                    dr::mask_t<FloatP> active) const {
         Transform<Point<FloatP, 4>> to_object;
         if constexpr (!dr::is_jit_v<FloatP>)
@@ -237,6 +241,7 @@ public:
 
     template <typename FloatP, typename Ray3fP>
     dr::mask_t<FloatP> ray_test_impl(const Ray3fP &ray_,
+                                     ScalarIndex /*prim_index*/,
                                      dr::mask_t<FloatP> active) const {
         MI_MASK_ARGUMENT(active);
 
@@ -300,7 +305,7 @@ public:
                    the traced ray, we first recompute the intersection distance
                    in a differentiable way (w.r.t. to the disk parameters) and
                    then compute the corresponding point along the ray. */
-                PreliminaryIntersection3f pi_d = ray_intersect_preliminary(ray, active);
+                PreliminaryIntersection3f pi_d = ray_intersect_preliminary(ray, 0, active);
                 si.t = dr::replace_grad(pi.t, pi_d.t);
                 si.p = ray(si.t);
                 prim_uv = dr::replace_grad(pi.prim_uv, pi_d.prim_uv);
