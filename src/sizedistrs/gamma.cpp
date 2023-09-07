@@ -36,16 +36,15 @@ public:
     MI_IMPORT_TYPES()
 
     GammaSizeDistr(const Properties &props) : Base(props) {
-        m_min_radius = props.get<ScalarFloat>("min_radius", 500.f);
-        m_max_radius = props.get<ScalarFloat>("max_radius", 5000.f);
-        m_a = props.get<ScalarFloat>("a", 600.f);
-        m_b = props.get<ScalarFloat>("b", 0.25f);
+        ScalarFloat min_radius = props.get<ScalarFloat>("min_radius", 500.f);
+        ScalarFloat max_radius = props.get<ScalarFloat>("max_radius", 5000.f);
+        ScalarFloat a = props.get<ScalarFloat>("a", 600.f);
+        ScalarFloat b = props.get<ScalarFloat>("b", 0.25f);
 
-        if (m_a < 0)
-            Log(Error, "a must be positive!");
-
-        if (!(m_b > 0 && m_b < 500.0))
-            Log(Error, "b must be between 0 and 500!");
+        m_min_radius = min_radius;
+        m_max_radius = max_radius;
+        m_a = a;
+        m_b = b;
 
         calculate_gauss();
         calculate_constant();
@@ -60,6 +59,13 @@ public:
             return value;
     }
 
+    void traverse(TraversalCallback *callback) override {
+        callback->put_parameter("min_radius", m_min_radius, +ParamFlags::Differentiable);
+        callback->put_parameter("max_radius", m_max_radius, +ParamFlags::Differentiable);
+        callback->put_parameter("a", m_a, +ParamFlags::Differentiable);
+        callback->put_parameter("b", m_b, +ParamFlags::Differentiable);
+    }
+
     std::string to_string() const override {
         std::ostringstream oss;
         oss << "GammaSizeDistr[" << std::endl
@@ -71,8 +77,8 @@ public:
 
     MI_DECLARE_CLASS()
 private:
-    ScalarFloat m_a;
-    ScalarFloat m_b;
+    Float m_a;
+    Float m_b;
 };
 
 MI_IMPLEMENT_CLASS_VARIANT(GammaSizeDistr, SizeDistribution)

@@ -178,7 +178,7 @@ template <typename Float_, typename Spectrum_> struct RenderAliases {
     using Endpoint               = typename RenderAliases::Endpoint;                               \
     using Medium                 = typename RenderAliases::Medium;                                 \
     using PhaseFunction          = typename RenderAliases::PhaseFunction;                          \
-    using SizeDistribution       = typename RenderAliases::SizeDistribution;                          \
+    using SizeDistribution       = typename RenderAliases::SizeDistribution;                       \
     using Film                   = typename RenderAliases::Film;                                   \
     using ImageBlock             = typename RenderAliases::ImageBlock;                             \
     using ReconstructionFilter   = typename RenderAliases::ReconstructionFilter;                   \

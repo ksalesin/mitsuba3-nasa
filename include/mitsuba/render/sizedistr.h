@@ -1,6 +1,7 @@
 #pragma once
 
 #include <mitsuba/render/fwd.h>
+#include <drjit/vcall.h>
 
 NAMESPACE_BEGIN(mitsuba)
 
@@ -57,12 +58,15 @@ public:
 
         return { radius, weight, sdf };
     }
+    
+    /// Returns whether this medium is monodisperse
+    MI_INLINE bool is_monodisperse() const { return m_is_monodisperse; }
 
     /// Return the minimum radius
-    ScalarFloat min_radius() const { return m_min_radius; }
+    Float min_radius() const { return m_min_radius; }
 
     /// Return the maximum radius
-    ScalarFloat max_radius() const { return m_max_radius; }
+    Float max_radius() const { return m_max_radius; }
 
     /// Return the number of Gaussian quadrature division points
     ScalarInt32 n_gauss() const { return m_g; }
@@ -76,11 +80,6 @@ public:
     /// Return a human-readable representation of the phase function
     std::string to_string() const override = 0;
 
-    void traverse(TraversalCallback *callback) override {
-        callback->put_parameter("min_radius", m_min_radius, +ParamFlags::NonDifferentiable);
-        callback->put_parameter("max_radius", m_max_radius, +ParamFlags::NonDifferentiable);
-    }
-
     //! @}
     // -----------------------------------------------------------------------
 
@@ -90,16 +89,18 @@ protected:
     virtual ~SizeDistribution();
 
 protected:
+    bool m_is_monodisperse = false;
+
     /// Normalization constant
     double m_constant;
 
     /// Minimum and maximum radius
-    ScalarFloat m_min_radius;
-    ScalarFloat m_max_radius;
+    Float m_min_radius;
+    Float m_max_radius;
 
     /// Effective radius and variance
-    ScalarFloat m_reff;
-    ScalarFloat m_veff;
+    Float m_reff;
+    Float m_veff;
 
     /// Number of Gaussian quadrature points
     uint32_t m_g;

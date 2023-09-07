@@ -157,7 +157,7 @@ class PRBUnpolarizedIntegrator(RBIntegrator):
                 mei.t[active_medium & (si.t < mei.t)] = dr.inf
 
                 # Evaluate ratio of transmittance and free-flight PDF
-                tr, free_flight_pdf = medium.eval_tr_and_pdf(mei, si, active_medium)
+                tr, free_flight_pdf = medium.transmittance_eval_pdf(mei, si, active_medium)
                 tr_pdf = index_spectrum(free_flight_pdf, channel)
                 weight = mi.Spectrum(1.0)
                 weight[active_medium] *= dr.select(tr_pdf > 0.0, tr / dr.detach(tr_pdf), 0.0)
@@ -213,7 +213,7 @@ class PRBUnpolarizedIntegrator(RBIntegrator):
                     
                     # Query the phase function for that emitter-sampled direction
                     phase_wo = mei.to_local(ds.d)
-                    phase_val = phase.eval(phase_ctx, mei, phase_wo, active_e_medium)
+                    phase_val, phase_pdf = phase.eval_pdf(phase_ctx, mei, phase_wo, active_e_medium)
                     phase_val = mei.to_world_mueller(phase_val, -phase_wo, mei.wi)
 
                     # Calculate NEE contribution to final radiance value
@@ -227,8 +227,10 @@ class PRBUnpolarizedIntegrator(RBIntegrator):
                             dr.backward(δL * contrib)
 
                 with dr.suspend_grad():
-                    wo, phase_weight = phase.sample(phase_ctx, mei, sampler.next_1d(act_medium_scatter), sampler.next_2d(act_medium_scatter), act_medium_scatter)
-                    phase_pdf = phase.pdf(phase_ctx, mei, wo, act_medium_scatter)
+                    wo, phase_weight, phase_pdf = phase.sample(phase_ctx, mei, 
+                                                               sampler.next_1d(act_medium_scatter), 
+                                                               sampler.next_2d(act_medium_scatter), 
+                                                               act_medium_scatter)
                     act_medium_scatter &= phase_pdf > 0.0
 
                 # TODO: Should we add the same derivative propagation block here as below the BSDF sampling step?
@@ -348,7 +350,7 @@ class PRBUnpolarizedIntegrator(RBIntegrator):
             # if self.nee_handle_homogeneous:
             #     active_homogeneous = active_medium & medium.is_homogeneous()
             #     mei.t[active_homogeneous] = dr.minimum(remaining_dist, si.t)
-            #     tr_multiplier[active_homogeneous] = medium.eval_tr_and_pdf(mei, si, active_homogeneous)[0]
+            #     tr_multiplier[active_homogeneous] = medium.transmittance_eval_pdf(mei, si, active_homogeneous)[0]
             #     mei.t[active_homogeneous] = dr.inf
 
             escaped_medium = active_medium & ~mei.is_valid()

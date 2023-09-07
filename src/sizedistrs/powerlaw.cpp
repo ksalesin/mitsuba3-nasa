@@ -36,14 +36,15 @@ public:
     MI_IMPORT_TYPES()
 
     PowerLawSizeDistr(const Properties &props) : Base(props) {
-        m_min_radius = props.get<ScalarFloat>("min_radius", 500.f);
-        m_max_radius = props.get<ScalarFloat>("max_radius", 5000.f);
-
+        ScalarFloat min_radius = props.get<ScalarFloat>("min_radius", 500.f);
+        ScalarFloat max_radius = props.get<ScalarFloat>("max_radius", 5000.f);
+        
         // exponent = 3 is used in [Mishchenko and Yang 2018]
-        m_exponent = props.get<ScalarFloat>("exponent", 3.f);
+        ScalarFloat exponent = props.get<ScalarFloat>("exponent", 3.f);
 
-        if (m_min_radius <= 0 || m_max_radius <= 0)
-            Log(Error, "Radii must be positive!");
+        m_min_radius = min_radius;
+        m_max_radius = max_radius;
+        m_exponent = exponent;
 
         calculate_gauss();
         calculate_constant();
@@ -58,6 +59,12 @@ public:
             return value;
     }
 
+    void traverse(TraversalCallback *callback) override {
+        callback->put_parameter("min_radius", m_min_radius, +ParamFlags::Differentiable);
+        callback->put_parameter("max_radius", m_max_radius, +ParamFlags::Differentiable);
+        callback->put_parameter("exponent", m_exponent, +ParamFlags::Differentiable);
+    }
+
     std::string to_string() const override {
         std::ostringstream oss;
         oss << "PowerLawSizeDistr[" << std::endl
@@ -70,7 +77,7 @@ public:
 
     MI_DECLARE_CLASS()
 private:
-    ScalarFloat m_exponent;
+    Float m_exponent;
 };
 
 MI_IMPLEMENT_CLASS_VARIANT(PowerLawSizeDistr, SizeDistribution)

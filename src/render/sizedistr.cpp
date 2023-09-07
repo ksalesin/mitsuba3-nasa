@@ -17,6 +17,15 @@ MI_VARIANT SizeDistribution<Float, Spectrum>::~SizeDistribution() {}
 /// "Numerical Recipes in C: The Art of Scientific Computing." 2nd ed. Press et al. 1992. p. 152.
 MI_VARIANT void SizeDistribution<Float, Spectrum>::calculate_gauss() {
     Log(Info, "Calculating %u points and weights for Gaussian quadrature...", m_g);
+    ScalarFloat min_radius, max_radius;
+
+    if constexpr(dr::is_jit_v<Float>) {
+        min_radius = m_min_radius[0];
+        max_radius = m_max_radius[0];
+    } else {
+        min_radius = m_min_radius;
+        max_radius = m_max_radius;
+    }
 
     m_gauss_points = std::vector<double>(m_g);
     m_gauss_weights = std::vector<double>(m_g);
@@ -26,8 +35,8 @@ MI_VARIANT void SizeDistribution<Float, Spectrum>::calculate_gauss() {
     double z, p1, p2, p3, dp;
     double eps = 1e-8f;
     double delta = 1.f;
-    double shift = 0.5f * (m_max_radius + m_min_radius);
-    double scale = 0.5f * (m_max_radius - m_min_radius);
+    double shift = 0.5f * (max_radius + min_radius);
+    double scale = 0.5f * (max_radius - min_radius);
 
     for (i = 1; i <= m; i++) {
         // Initial guess

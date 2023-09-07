@@ -42,18 +42,17 @@ public:
     MI_IMPORT_TYPES()
 
     LogNormalSizeDistr(const Properties &props) : Base(props) {
-        m_min_radius = props.get<ScalarFloat>("min_radius", 500.f);
-        m_max_radius = props.get<ScalarFloat>("max_radius", 5000.f);
-        m_mean_radius = props.get<ScalarFloat>("mean_radius", 1000.f);
+        ScalarFloat min_radius = props.get<ScalarFloat>("min_radius", 500.f);
+        ScalarFloat max_radius = props.get<ScalarFloat>("max_radius", 5000.f);
+        ScalarFloat mean_radius = props.get<ScalarFloat>("mean_radius", 1000.f);
         ScalarFloat std = props.get<ScalarFloat>("std", 100.f);
 
-        if (m_min_radius <= 0 || m_max_radius <= 0 || m_mean_radius <= 0)
-            Log(Error, "Radii must be positive!");
+        m_min_radius = min_radius;
+        m_max_radius = max_radius;
+        m_mean_radius = mean_radius;
+        m_std = std;
 
-        if (std <= 0)
-            Log(Error, "Standard deviation must be positive!");
-
-        ScalarFloat ln_std = dr::log(std);
+        Float ln_std = dr::log(m_std);
         m_std_constant = dr::rcp(2.f * dr::sqr(ln_std));
         
         calculate_gauss();
@@ -62,12 +61,19 @@ public:
 
     Float eval(Float r, bool normalize) const override {
         Float a = dr::log(r) - dr::log(Float(m_mean_radius));
-        Float value = dr::exp(-dr::sqr(a) * Float(m_std_constant)) / r;
+        Float value = dr::exp(-dr::sqr(a) * m_std_constant) / r;
 
         if (normalize)
             return Float(m_constant) * value;
         else
             return value;
+    }
+
+    void traverse(TraversalCallback *callback) override {
+        callback->put_parameter("min_radius", m_min_radius, +ParamFlags::Differentiable);
+        callback->put_parameter("max_radius", m_max_radius, +ParamFlags::Differentiable);
+        callback->put_parameter("mean_radius", m_mean_radius, +ParamFlags::Differentiable);
+        callback->put_parameter("std", m_std, +ParamFlags::Differentiable);
     }
 
     std::string to_string() const override {
@@ -76,15 +82,16 @@ public:
             << "  min_radius = " << string::indent(m_min_radius) << std::endl
             << "  max_radius = " << string::indent(m_max_radius) << std::endl
             << "  mean_radius = " << string::indent(m_mean_radius) << std::endl
-            << "  std_constant = " << string::indent(m_std_constant) << std::endl
+            << "  std = " << string::indent(m_std) << std::endl
             << "]";
         return oss.str();
     }
 
     MI_DECLARE_CLASS()
 private:
-    ScalarFloat m_mean_radius;
-    ScalarFloat m_std_constant;
+    Float m_mean_radius;
+    Float m_std_constant;
+    Float m_std;
 };
 
 MI_IMPLEMENT_CLASS_VARIANT(LogNormalSizeDistr, SizeDistribution)
