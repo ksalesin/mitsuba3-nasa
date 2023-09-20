@@ -80,6 +80,11 @@ public:
     /// Return a human-readable representation of the phase function
     std::string to_string() const override = 0;
 
+    void parameters_changed(const std::vector<std::string> &keys = {}) override {
+        calculate_gauss();
+        calculate_constant();
+    }
+
     //! @}
     // -----------------------------------------------------------------------
 

@@ -122,14 +122,6 @@ public:
         m_components.push_back(m_flags);
     }
 
-    void traverse(TraversalCallback *callback) override {
-        callback->put_parameter("values", m_distr.pdf(), ParamFlags::Differentiable | ParamFlags::Discontinuous);
-    }
-
-    void parameters_changed(const std::vector<std::string> & /*keys*/) override {
-        m_distr.update();
-    }
-
     std::tuple<Vector3f, Spectrum, Float> sample(const PhaseFunctionContext &ctx,
                                                  const MediumInteraction3f &mi,
                                                  Float /* sample1 */,
@@ -216,6 +208,33 @@ public:
                     * dr::InvTwoPi<ScalarFloat>;
 
         return { phase_val, pdf };
+    }
+
+    void traverse(TraversalCallback *callback) override {
+        callback->put_parameter("m11", m_m11.pdf(), ParamFlags::Differentiable | ParamFlags::Discontinuous);
+        callback->put_parameter("m12", m_m12.pdf(), ParamFlags::Differentiable | ParamFlags::Discontinuous);
+        callback->put_parameter("m33", m_m33.pdf(), ParamFlags::Differentiable | ParamFlags::Discontinuous);
+        callback->put_parameter("m34", m_m34.pdf(), ParamFlags::Differentiable | ParamFlags::Discontinuous);
+    }
+
+    void parameters_changed(const std::vector<std::string> & /*keys*/) override {
+        m_m11.update();
+        m_m12.update();
+        m_m33.update();
+        m_m34.update();
+
+        auto nodes = m_m11.nodes().data();
+        auto values = m_m11.pdf().data();
+        auto size = m_m11.size();
+
+        // // Clamp values to be non-negative
+        // for (size_t i = 0; i < size; i++)
+        //     values[i] = dr::clamp(values[i], 0.f, dr::Infinity<ScalarFloat>);
+
+        // Normalized version of m11 used for sampling
+        m_distr = IrregularContinuousDistribution<Float>(
+            nodes, values, size
+        );
     }
     
     std::string to_string() const override {

@@ -580,7 +580,8 @@ public:
                                     size_t size,
                                     bool normalize = true,
                                     bool enable_sampling = true)
-        : m_nodes(dr::load<FloatStorage>(nodes, size)), m_pdf(dr::load<FloatStorage>(pdf, size)) {
+        : m_nodes(dr::load<FloatStorage>(nodes, size)), m_pdf(dr::load<FloatStorage>(pdf, size)),
+          m_enable_sampling(enable_sampling) {
         compute_cdf(nodes, pdf, size, normalize, enable_sampling);
     }
 
@@ -593,9 +594,11 @@ public:
             FloatStorage temp_nodes = dr::migrate(m_nodes, AllocType::Host);
             FloatStorage temp_pdf = dr::migrate(m_pdf, AllocType::Host);
             dr::sync_thread();
-            compute_cdf(temp_nodes.data(), temp_pdf.data(), temp_nodes.size());
+            compute_cdf(temp_nodes.data(), temp_pdf.data(), temp_nodes.size(), 
+                        true, m_enable_sampling);
         } else {
-            compute_cdf(m_nodes.data(), m_pdf.data(), m_nodes.size());
+            compute_cdf(m_nodes.data(), m_pdf.data(), m_nodes.size(),
+                        true, m_enable_sampling);
         }
     }
 
@@ -863,6 +866,7 @@ private:
     ScalarVector2u m_valid;
     ScalarFloat m_interval_size = 0.f;
     ScalarFloat m_max = 0.f;
+    bool m_enable_sampling = true;
 };
 
 template <typename Value>
