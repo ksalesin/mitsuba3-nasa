@@ -67,6 +67,7 @@ std::tuple<dr::Complex<Value>, dr::Complex<Value>, Value> mie_s1s2(Value wavelen
     Int x_nmax = nmax_;
     Int y_nmax = nmax_;
 
+    // Horizontal op is not allowed in AD mode
     // Default stopping criterion, [Mishchenko and Yang 2018]
     // if (x_nmax == -1) {
     //     x_nmax = (Int) dr::max_nested(8 + x_norm + 4.05f * dr::pow(x_norm, 1.f / 3.f));
@@ -145,8 +146,6 @@ std::tuple<dr::Complex<Value>, dr::Complex<Value>, Value> mie_s1s2(Value wavelen
                              S1, S2, Ns);
 
     while (loop_mie(n <= x_nmax)) {
-        // active &= n <= x_nmax;
-
         Value fn = n;
         j_ratio_x_n = j_ratio_x[n];
         j_ratio_y_n = j_ratio_y[n];
@@ -190,11 +189,19 @@ std::tuple<dr::Complex<Value>, dr::Complex<Value>, Value> mie_s1s2(Value wavelen
                         (m_sq * jy_n * hx_dx - hx_n * jy_dy),
                   b_n = (jy_n * jx_dx - jx_n * jy_dy) /
                         (jy_n * hx_dx - hx_n * jy_dy);
-                        
+
+        // Horizontal op is not allowed in AD mode
+        // if (dr::any_nested(dr::isnan(a_n)) || dr::any_nested(dr::isnan(b_n)))
+        //     break;
+
         // All subsequent iterations will be nan as well
         auto isnan = dr::isnan(dr::real(a_n)) || dr::isnan(dr::imag(a_n)) ||
                      dr::isnan(dr::real(b_n)) || dr::isnan(dr::imag(b_n));
         auto active = !isnan;
+
+        // Log(Warn, "i: %s", n);
+        // Log(Warn, "a_n: %s", a_n);
+        // Log(Warn, "b_n: %s", b_n);
 
         // Calculate i-th term of S1 and S2
         Value kn = (2 * fn + 1) / (fn * (fn + 1));

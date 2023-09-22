@@ -173,7 +173,7 @@ public:
             dr::Loop<dr::mask_t<uint32_t>> loop_gauss("Integrate over distribution of sizes", 
                                     /* loop state: */ i, Cs_avg, phase_r, phase_val);
 
-            while (loop_gauss(i <= g)) {
+            while (loop_gauss(i < g)) {
                 auto [radius, weight, sdf] = m_size_distr->eval_gauss(i);
 
                 auto [s1, s2, ns] = mie_s1s2(wavelengths_u, 
@@ -195,14 +195,11 @@ public:
                     phase_r = 0.5f * (dr::squared_norm(s1) + dr::squared_norm(s2)) * dr::rcp(ns);
                 }
 
-                // Some rare nan's can pop up in Mie computation
-                dr::masked(Cs, dr::isnan(Cs)) = 0.f;
-                dr::masked(phase_r, dr::isnan(phase_r)) = 0.f;
-
                 Cs_avg += weight * sdf * Cs;
                 phase_val += weight * sdf * Cs * phase_r;
-                // dr::schedule(Cs_avg, phase_val);
-                // dr::eval();
+
+                dr::schedule(Cs_avg, phase_val);
+                dr::eval();
 
                 i++;
             }
@@ -210,32 +207,32 @@ public:
             phase_val /= Cs_avg;
         }
 
-        // if constexpr (is_polarized_v<Spectrum>) {
-        //     /* Due to the coordinate system rotations for polarization-aware
-        //         pBSDFs below we need to know the propagation direction of light.
-        //         In the following, light arrives along `-wo_hat` and leaves along
-        //         `+wi_hat`. */
-        //     Vector3f wo_hat = ctx.mode == TransportMode::Radiance ? wo : mi.wi,
-        //              wi_hat = ctx.mode == TransportMode::Radiance ? mi.wi : wo;
+        if constexpr (is_polarized_v<Spectrum>) {
+            /* Due to the coordinate system rotations for polarization-aware
+                pBSDFs below we need to know the propagation direction of light.
+                In the following, light arrives along `-wo_hat` and leaves along
+                `+wi_hat`. */
+            Vector3f wo_hat = ctx.mode == TransportMode::Radiance ? wo : mi.wi,
+                     wi_hat = ctx.mode == TransportMode::Radiance ? mi.wi : wo;
 
-        //     /* The Stokes reference frame vector of this matrix lies in the 
-        //         scattering plane spanned by wi and wo.
+            /* The Stokes reference frame vector of this matrix lies in the 
+                scattering plane spanned by wi and wo.
             
-        //         See Fig. A.1 in "Optical Polarization in Biomedical Applications" (Appendix A)
-        //         by Tuchin, Wang, and Zimnyakov (2006). */
-        //     Vector3f x_hat = dr::cross(-wo_hat, wi_hat),
-        //              p_axis_in = dr::normalize(dr::cross(x_hat, -wo_hat)),
-        //              p_axis_out = dr::normalize(dr::cross(x_hat, wi_hat));
+                See Fig. A.1 in "Optical Polarization in Biomedical Applications" (Appendix A)
+                by Tuchin, Wang, and Zimnyakov (2006). */
+            Vector3f x_hat = dr::cross(-wo_hat, wi_hat),
+                     p_axis_in = dr::normalize(dr::cross(x_hat, -wo_hat)),
+                     p_axis_out = dr::normalize(dr::cross(x_hat, wi_hat));
 
-        //     /* Rotate in/out reference vector of weight s.t. it aligns with the
-        //     implicit Stokes bases of -wo_hat & wi_hat. */
-        //     phase_val = mueller::rotate_mueller_basis(phase_val,
-        //                                              -wo_hat, p_axis_in, mueller::stokes_basis(-wo_hat),
-        //                                               wi_hat, p_axis_out, mueller::stokes_basis(wi_hat));
+            /* Rotate in/out reference vector of weight s.t. it aligns with the
+            implicit Stokes bases of -wo_hat & wi_hat. */
+            phase_val = mueller::rotate_mueller_basis(phase_val,
+                                                     -wo_hat, p_axis_in, mueller::stokes_basis(-wo_hat),
+                                                      wi_hat, p_axis_out, mueller::stokes_basis(wi_hat));
 
-        //     // If the cross product x_hat is too small, M may be NaN due to normalize()
-        //     dr::masked(phase_val, dr::isnan(phase_val)) = 0.f;
-        // }
+            // If the cross product x_hat is too small, M may be NaN due to normalize()
+            dr::masked(phase_val, dr::isnan(phase_val)) = 0.f;
+        }
         
         return phase_val;
     }

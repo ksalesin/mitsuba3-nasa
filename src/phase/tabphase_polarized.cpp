@@ -97,14 +97,8 @@ public:
                 }
             }
 
-            // Normalized version of m11 used for sampling
-            m_distr = IrregularContinuousDistribution<Float>(
-                cost.data(), m11.data(), m11.size()
-            );
-
-            // Original tabulated values
             m_m11 = IrregularContinuousDistribution<Float>(
-                cost.data(), m11.data(), m11.size(), false, false
+                cost.data(), m11.data(), m11.size()
             );
             m_m12 = IrregularContinuousDistribution<Float>(
                 cost.data(), m12.data(), m12.size(), false, false
@@ -133,7 +127,7 @@ public:
         // We sample cos θ' = cos(π - θ) = -cos θ.
         //
         // [Kate] Does this need to change?
-        Float cos_theta_prime = m_distr.sample(sample2.x());
+        Float cos_theta_prime = m_m11.sample(sample2.x());
         Float sin_theta_prime =
             dr::safe_sqrt(1.f - cos_theta_prime * cos_theta_prime);
         auto [sin_phi, cos_phi] =
@@ -204,7 +198,7 @@ public:
             dr::masked(phase_val, dr::isnan(phase_val)) = depolarizer<Spectrum>(0.f);
         }
 
-        Float pdf = m_distr.eval_pdf_normalized(cos_theta, active) 
+        Float pdf = m_m11.eval_pdf_normalized(cos_theta, active) 
                     * dr::InvTwoPi<ScalarFloat>;
 
         return { phase_val, pdf };
@@ -222,32 +216,18 @@ public:
         m_m12.update();
         m_m33.update();
         m_m34.update();
-
-        auto nodes = m_m11.nodes().data();
-        auto values = m_m11.pdf().data();
-        auto size = m_m11.size();
-
-        // // Clamp values to be non-negative
-        // for (size_t i = 0; i < size; i++)
-        //     values[i] = dr::clamp(values[i], 0.f, dr::Infinity<ScalarFloat>);
-
-        // Normalized version of m11 used for sampling
-        m_distr = IrregularContinuousDistribution<Float>(
-            nodes, values, size
-        );
     }
     
     std::string to_string() const override {
         std::ostringstream oss;
         oss << "TabulatedPhaseFunction[" << std::endl
-            << "  distr = " << string::indent(m_distr) << std::endl
+            << "  distr = " << string::indent(m_m11) << std::endl
             << "]";
         return oss.str();
     }
 
     MI_DECLARE_CLASS()
 private:
-    IrregularContinuousDistribution<Float> m_distr;
     IrregularContinuousDistribution<Float> m_m11;
     IrregularContinuousDistribution<Float> m_m12;
     IrregularContinuousDistribution<Float> m_m33;
