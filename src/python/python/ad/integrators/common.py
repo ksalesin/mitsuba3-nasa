@@ -137,7 +137,7 @@ class ADIntegrator(mi.CppADIntegrator):
                 sensor=sensor,
                 seed=seed,
                 spp=spp,
-                aovs=self.aovs()
+                aovs=self.aov_names()
             )
 
             # Generate a set of rays starting at the sensor
@@ -1086,7 +1086,7 @@ class RBIntegrator(ADIntegrator):
             sensor = scene.sensors()[sensor]
 
         film = sensor.film()
-        aovs = self.aovs()
+        aovs = self.aov_names()
 
         # Disable derivatives in all of the following
         with dr.suspend_grad():
