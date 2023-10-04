@@ -1,7 +1,6 @@
 #pragma once
 
 #include <mitsuba/render/fwd.h>
-#include <drjit/vcall.h>
 
 NAMESPACE_BEGIN(mitsuba)
 
@@ -17,6 +16,8 @@ class MI_EXPORT_LIB SizeDistribution : public Object {
 public:
     MI_IMPORT_TYPES()
 
+    using FloatX = dr::DynamicArray<dr::scalar_t<Float>>;
+
     /**
      * \brief Evaluate the size distribution function (sdf)
      *
@@ -26,15 +27,10 @@ public:
     virtual Float eval(Float r, bool normalize = true) const = 0;
 
     /**
-     * \brief Calculate the Gaussian quadrature division points
-     *        and weights.
+     * \brief Calculate normalization constant, average geometric cross section,
+     *        effective radius, and effective variance.
      */
-    void calculate_gauss();
-
-    /**
-     * \brief Calculate normalization constant.
-     */
-    void calculate_constant();
+    void calculate_constants();
     
     /**
      * \brief Evaluate radius, Gaussian quadrature weight,
@@ -52,14 +48,17 @@ public:
         if (i > m_g)
             Throw("Index %d out of range", i);
 
-        Float radius = Float(m_gauss_points[i]);
-        Float weight = Float(m_gauss_weights[i]);
+        Float shift = 0.5f * (m_max_radius + m_min_radius);
+        Float scale = 0.5f * (m_max_radius - m_min_radius);
+
+        Float radius = Float(m_gauss_nodes[i]) * scale + shift;
+        Float weight = Float(m_gauss_weights[i]) * scale;
         Float sdf    = eval(radius);
 
         return { radius, weight, sdf };
     }
     
-    /// Returns whether this medium is monodisperse
+    /// Returns whether this size distribution is monodisperse
     MI_INLINE bool is_monodisperse() const { return m_is_monodisperse; }
 
     /// Return the minimum radius
@@ -77,12 +76,11 @@ public:
     /// Set a string identifier
     void set_id(const std::string& id) override { m_id = id; };
 
-    /// Return a human-readable representation of the phase function
+    /// Return a human-readable representation of the size distribution
     std::string to_string() const override = 0;
 
     void parameters_changed(const std::vector<std::string> &keys = {}) override {
-        calculate_gauss();
-        calculate_constant();
+        calculate_constants();
     }
 
     //! @}
@@ -96,8 +94,8 @@ protected:
 protected:
     bool m_is_monodisperse = false;
 
-    /// Normalization constant
-    double m_constant;
+    /// Normalization factor (inverse of integral)
+    double m_normalization;
 
     /// Minimum and maximum radius
     Float m_min_radius;
@@ -110,9 +108,9 @@ protected:
     /// Number of Gaussian quadrature points
     uint32_t m_g;
 
-    /// Gaussian quadrature division weights and points
-    std::vector<double> m_gauss_weights;
-    std::vector<double> m_gauss_points;
+    /// Gaussian quadrature division nodes and weights
+    FloatX m_gauss_nodes;
+    FloatX m_gauss_weights;
 
     /// Identifier (if available)
     std::string m_id;

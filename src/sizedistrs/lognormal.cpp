@@ -38,7 +38,7 @@ template <typename Float, typename Spectrum>
 class LogNormalSizeDistr final : public SizeDistribution<Float, Spectrum> {
 public:
     MI_IMPORT_BASE(SizeDistribution, m_min_radius, m_max_radius, 
-                    m_constant, calculate_gauss, calculate_constant)
+                    m_normalization, calculate_constants)
     MI_IMPORT_TYPES()
 
     LogNormalSizeDistr(const Properties &props) : Base(props) {
@@ -55,8 +55,7 @@ public:
         Float ln_std = dr::log(m_std);
         m_std_constant = dr::rcp(2.f * dr::sqr(ln_std));
         
-        calculate_gauss();
-        calculate_constant();
+        calculate_constants();
     }
 
     Float eval(Float r, bool normalize) const override {
@@ -64,7 +63,7 @@ public:
         Float value = dr::exp(-dr::sqr(a) * m_std_constant) / r;
 
         if (normalize)
-            return Float(m_constant) * value;
+            return Float(m_normalization) * value;
         else
             return value;
     }

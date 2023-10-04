@@ -32,7 +32,7 @@ template <typename Float, typename Spectrum>
 class PowerLawSizeDistr final : public SizeDistribution<Float, Spectrum> {
 public:
     MI_IMPORT_BASE(SizeDistribution, m_min_radius, m_max_radius, 
-                    m_constant, calculate_gauss, calculate_constant)
+                    m_normalization, calculate_constants)
     MI_IMPORT_TYPES()
 
     PowerLawSizeDistr(const Properties &props) : Base(props) {
@@ -46,15 +46,14 @@ public:
         m_max_radius = max_radius;
         m_exponent = exponent;
 
-        calculate_gauss();
-        calculate_constant();
+        calculate_constants();
     }
 
     Float eval(Float r, bool normalize) const override {
         Float value = dr::pow(r, -m_exponent);
 
         if (normalize)
-            return Float(m_constant) * value;
+            return Float(m_normalization) * value;
         else
             return value;
     }

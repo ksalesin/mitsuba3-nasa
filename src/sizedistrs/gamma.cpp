@@ -32,7 +32,7 @@ template <typename Float, typename Spectrum>
 class GammaSizeDistr final : public SizeDistribution<Float, Spectrum> {
 public:
     MI_IMPORT_BASE(SizeDistribution, m_min_radius, m_max_radius, 
-                    m_constant, calculate_gauss, calculate_constant)
+                    m_normalization, calculate_constants)
     MI_IMPORT_TYPES()
 
     GammaSizeDistr(const Properties &props) : Base(props) {
@@ -46,15 +46,14 @@ public:
         m_a = a;
         m_b = b;
 
-        calculate_gauss();
-        calculate_constant();
+        calculate_constants();
     }
 
     Float eval(Float r, bool normalize) const override {
         Float value = dr::pow(r, (1 - 3 * m_b) / m_b) * dr::exp(-r / (m_a * m_b));
 
         if (normalize)
-            return Float(m_constant) * value;
+            return Float(m_normalization) * value;
         else
             return value;
     }
@@ -82,5 +81,5 @@ private:
 };
 
 MI_IMPLEMENT_CLASS_VARIANT(GammaSizeDistr, SizeDistribution)
-MI_EXPORT_PLUGIN(GammaSizeDistr, "Power law size distribution function")
+MI_EXPORT_PLUGIN(GammaSizeDistr, "Gamma size distribution function")
 NAMESPACE_END(mitsuba)

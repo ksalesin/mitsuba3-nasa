@@ -30,20 +30,20 @@ template <typename Float, typename Spectrum>
 class MonodisperseSizeDistr final : public SizeDistribution<Float, Spectrum> {
 public:
     MI_IMPORT_BASE(SizeDistribution, m_min_radius, m_max_radius, 
-                    m_constant, m_is_monodisperse)
+                    m_normalization, m_is_monodisperse)
     MI_IMPORT_TYPES()
 
     MonodisperseSizeDistr(const Properties &props) : Base(props) {
         ScalarFloat min_radius = props.get<ScalarFloat>("radius", 1000.f);
         m_min_radius = min_radius;
         m_max_radius = m_min_radius;
-        m_constant = 1.f;
+        m_normalization = 1.f;
         m_is_monodisperse = true;
     }
 
     Float eval(Float r, bool /* normalize */) const override {
         Float val = 0.f;
-        dr::masked(val, r == m_min_radius) = 1.f;
+        dr::masked(val, dr::allclose(r, m_min_radius)) = 1.f;
         return val;
     }
 

@@ -113,17 +113,6 @@ public:
         m_components.push_back(m_flags);
     }
 
-    /**
-     * Numerically stable method computing the elevation of the given
-     * (normalized) vector in the local frame.
-     * Conceptually equivalent to:
-     *     safe_acos(Frame3f::cos_theta(d))
-     */
-    auto elevation(const Vector3f &d) const {
-        auto dist = dr::sqrt(dr::sqr(d.x()) + dr::sqr(d.y()) + dr::sqr(d.z() - 1.f));
-        return 2.f * dr::safe_asin(.5f * dist);
-    }
-
     Spectrum eval_mie(const PhaseFunctionContext &ctx, 
                       const MediumInteraction3f &mi, 
                       const Vector3f &wo,

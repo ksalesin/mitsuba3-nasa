@@ -153,7 +153,7 @@ class PRBUnpolarizedIntegrator(RBIntegrator):
                 si_new = scene.ray_intersect(ray, intersect)
                 si[intersect] = si_new
 
-                needs_intersection &= ~active_medium
+                needs_intersection &= ~(active_medium & si.is_valid())
                 mei.t[active_medium & (si.t < mei.t)] = dr.inf
 
                 # Evaluate ratio of transmittance and free-flight PDF
@@ -182,6 +182,7 @@ class PRBUnpolarizedIntegrator(RBIntegrator):
                 # Don't estimate lighting if we exceeded number of bounces
                 active &= depth < self.max_depth
                 act_medium_scatter &= active
+
                 if self.handle_null_scattering:
                     ray.o[act_null_scatter] = dr.detach(mei.p)
                     si.t[act_null_scatter] = si.t - dr.detach(mei.t)
@@ -192,7 +193,8 @@ class PRBUnpolarizedIntegrator(RBIntegrator):
                 mei = dr.detach(mei)
                 if not is_primal and dr.grad_enabled(weight):
                     Lo = dr.detach(dr.select(active_medium | escaped_medium, L / dr.maximum(1e-8, weight), 0.0))
-                    dr.backward(δL * weight * Lo)
+                    # dr.backward(δL * weight * Lo)
+                    dr.backward(δL * Lo)
 
                 phase_ctx = mi.PhaseFunctionContext(sampler)
                 phase = mei.medium.phase_function()

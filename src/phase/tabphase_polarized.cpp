@@ -125,8 +125,6 @@ public:
 
         // Sample a direction in physics convention.
         // We sample cos θ' = cos(π - θ) = -cos θ.
-        //
-        // [Kate] Does this need to change?
         Float cos_theta_prime = m_m11.sample(sample2.x());
         Float sin_theta_prime =
             dr::safe_sqrt(1.f - cos_theta_prime * cos_theta_prime);
@@ -139,7 +137,7 @@ public:
         // computed direction to world coordinates
         //
         // [Kate] We convert to world space in the integrator 
-        // and our mi.sh_frame = ray.d, not -ray.d (as in the base Mitsuba 3), to be consistent with to_world_mueller
+        // and our mi.sh_frame = ray.d, not -ray.d (as in the base Mitsuba 3), to be consistent with to_world_mueller()
         // wo = -mi.to_world(wo);
 
         auto [ phase_val, phase_pdf ] = eval_pdf(ctx, mi, wo, active);

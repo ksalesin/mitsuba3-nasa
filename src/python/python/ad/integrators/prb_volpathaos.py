@@ -262,7 +262,6 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
                 #         δL += dr.forward_to(Lo)
 
                 throughput[act_medium_scatter] = throughput @ phase_weight
-                
                 new_ray = mei.spawn_ray(mei.to_world(wo))
                 ray[act_medium_scatter] = new_ray
                 needs_intersection |= act_medium_scatter
