@@ -61,7 +61,6 @@ public:
     MI_IMPORT_TYPES(PhaseFunctionContext, SizeDistribution)
 
     using Complex2f = dr::Complex<Float>;
-    using Warp2D1 = Marginal2D<Float, 1, true>;
 
     MiePhaseFunction(const Properties &props) : Base(props) {
         if constexpr(is_rgb_v<Spectrum>)
@@ -109,8 +108,6 @@ public:
         m_ior_med = Complex2f(m_ior_med_re, m_ior_med_im);
         m_ior_sph = Complex2f(m_ior_sph_re, m_ior_sph_im);
 
-        m_nmax = 100; // Temporary placeholder for testing
-
         m_flags = +PhaseFunctionFlags::Anisotropic;
         dr::set_attr(this, "flags", m_flags);
         m_components.push_back(m_flags);
@@ -146,12 +143,12 @@ public:
         if (m_size_distr->is_monodisperse()) {
             Float radius = m_size_distr->min_radius();
 
-            auto [s1, s2, ns] = mie_s1s2(wavelengths_u, 
-                                         UnpolarizedSpectrum(mu), 
-                                         UnpolarizedSpectrum(radius), 
-                                         dr::Complex<UnpolarizedSpectrum>(m_ior_med), 
-                                         dr::Complex<UnpolarizedSpectrum>(m_ior_sph), 
-                                         m_nmax);
+            auto [s1, s2, ns, Cs, Ct] = mie(wavelengths_u, 
+                                            UnpolarizedSpectrum(mu), 
+                                            UnpolarizedSpectrum(radius), 
+                                            dr::Complex<UnpolarizedSpectrum>(m_ior_med), 
+                                            dr::Complex<UnpolarizedSpectrum>(m_ior_sph), 
+                                            m_nmax);
 
             if constexpr (is_polarized_v<Spectrum>) {
                 phase_val = mueller::mie_scatter(s1, s2, ns);
@@ -176,18 +173,12 @@ public:
             while (loop_gauss(i < g)) {
                 auto [radius, weight, sdf] = m_size_distr->eval_gauss(i);
 
-                auto [s1, s2, ns] = mie_s1s2(wavelengths_u, 
-                                             UnpolarizedSpectrum(mu), 
-                                             UnpolarizedSpectrum(radius), 
-                                             dr::Complex<UnpolarizedSpectrum>(m_ior_med), 
-                                             dr::Complex<UnpolarizedSpectrum>(m_ior_sph), 
-                                             m_nmax);
-
-                auto [Cs, Ct] = mie_xsections(wavelengths_u,
-                                              UnpolarizedSpectrum(radius), 
-                                              dr::Complex<UnpolarizedSpectrum>(m_ior_med), 
-                                              dr::Complex<UnpolarizedSpectrum>(m_ior_sph), 
-                                              m_nmax);
+                auto [s1, s2, ns, Cs, Ct] = mie(wavelengths_u, 
+                                                UnpolarizedSpectrum(mu), 
+                                                UnpolarizedSpectrum(radius), 
+                                                dr::Complex<UnpolarizedSpectrum>(m_ior_med), 
+                                                dr::Complex<UnpolarizedSpectrum>(m_ior_sph), 
+                                                m_nmax);
    
                 if constexpr (is_polarized_v<Spectrum>) {
                     phase_r = mueller::mie_scatter(s1, s2, ns);

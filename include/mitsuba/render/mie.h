@@ -29,7 +29,7 @@ NAMESPACE_BEGIN(mitsuba)
  * 
  * \param 
  *
- * \return A tuple (S1, S2, Ns) consisting of
+ * \return A tuple (S1, S2, Ns, Cs, Ct) consisting of
  *
  *     S1          Scattering amplitude/phase of the *ordinary* ray
  *
@@ -37,12 +37,19 @@ NAMESPACE_BEGIN(mitsuba)
  * 
  *     Ns          Normalization coefficient required by the phase function,
  *                 which is defined as ``(abs(S1)^2 + abs(S2)^2) / Ns``
+ * 
+ *     Cs          Scattering cross section (units of 1/(distance * wavelength))
+ * 
+ *     Ct          Extinction cross section (units of 1/(distance * wavelength))
 */
 template <typename Value, typename Int>
-std::tuple<dr::Complex<Value>, dr::Complex<Value>, Value> mie_s1s2(Value wavelengths, Value mu, Value radius, dr::Complex<Value> ior_med, dr::Complex<Value> ior_sph, Int nmax_) {
+std::tuple<dr::Complex<Value>, dr::Complex<Value>, Value, Value, Value> 
+mie(Value wavelengths, Value mu, Value radius, dr::Complex<Value> ior_med, 
+    dr::Complex<Value> ior_sph, Int nmax_) {
+
+    using ScalarValue = dr::scalar_t<Value>;
     using Complex2v = dr::Complex<Value>;
     using Array2v = dr::Array<Value, 2>;
-    // using Mask = dr::mask_t<Value>;
 
     // Relative index of refraction
     Complex2v m = ior_sph * dr::rcp(ior_med);
@@ -67,12 +74,15 @@ std::tuple<dr::Complex<Value>, dr::Complex<Value>, Value> mie_s1s2(Value wavelen
     Int x_nmax = nmax_;
     Int y_nmax = nmax_;
 
-    // Horizontal op is not allowed in AD mode
     // Default stopping criterion, [Mishchenko and Yang 2018]
-    // if (x_nmax == -1) {
-    //     x_nmax = (Int) dr::max_nested(8 + x_norm + 4.05f * dr::pow(x_norm, 1.f / 3.f));
-    //     y_nmax = (Int) dr::max_nested(8 + y_norm + 4.05f * dr::pow(y_norm, 1.f / 3.f));
-    // }
+    if constexpr (dr::is_jit_v<Value>) {
+        ScalarValue x_tmp = x_norm[0][0], y_tmp = y_norm[0][0];
+        dr::masked(x_nmax, nmax_ == -1) = (Int) (8 + x_tmp + 4.05f * dr::cbrt(x_tmp));
+        dr::masked(y_nmax, nmax_ == -1) = (Int) (8 + y_tmp + 4.05f * dr::cbrt(y_tmp));
+    } else {
+        dr::masked(x_nmax, nmax_ == -1) = (Int) dr::max_nested(8 + x_norm + 4.05f * dr::cbrt(x_norm));
+        dr::masked(y_nmax, nmax_ == -1) = (Int) dr::max_nested(8 + y_norm + 4.05f * dr::cbrt(y_norm));
+    }
 
     // Above this, drjit gives an error (need to investigate further)
     x_nmax = dr::minimum(x_nmax, (Int) 1000);
@@ -96,11 +106,6 @@ std::tuple<dr::Complex<Value>, dr::Complex<Value>, Value> mie_s1s2(Value wavelen
         n--;
     }
 
-    // for (Int n = x_ndown - 1; n >= 1; --n) {
-    //     Complex2v kx_n = Value(2 * n + 1) * rcp_x;
-    //     j_ratio_x[n] = j_ratio_x_n = dr::rcp(kx_n - j_ratio_x_n);
-    // }
-
     // Calculate ratio j_n(z) / j_{n-1}(z) by downward recurrence for z = y
     std::vector<Complex2v> j_ratio_y(y_ndown);
     Complex2v j_ratio_y_n = y * dr::rcp(2.f * y_ndown + 1);
@@ -114,11 +119,6 @@ std::tuple<dr::Complex<Value>, dr::Complex<Value>, Value> mie_s1s2(Value wavelen
         j_ratio_y[n] = j_ratio_y_n = dr::rcp(ky_n - j_ratio_y_n);
         n--;
     }
-
-    // for (Int n = y_ndown - 1; n >= 1; --n) {
-    //     Complex2v ky_n = Value(2 * n + 1) * rcp_y;
-    //     j_ratio_y[n] = j_ratio_y_n = dr::rcp(ky_n - j_ratio_y_n);
-    // }
 
     // Variables for upward recurrences of Bessel fcts.
     Complex2v jx_0 = dr::sin(x) * rcp_x,
@@ -138,9 +138,12 @@ std::tuple<dr::Complex<Value>, dr::Complex<Value>, Value> mie_s1s2(Value wavelen
     // Accumulation variable for normalization factor
     Value Ns = 0;
 
+    // Accumulation variables for cross sections
+    Value Cs = 0, Ct = 0;
+
     // Mask active = true;
     n = 1;
-    dr::Loop<dr::mask_t<Int>> loop_mie("Calculate S1 and S2 terms", 
+    dr::Loop<dr::mask_t<Int>> loop_mie("Calculate S1, S2, Ns, Cs, and Ct", 
                              /* loop state: */ n, j_ratio_x_n, j_ratio_y_n, 
                              jx_0, jy_0, hx_0, hx_1, pi_0, pi_1, 
                              S1, S2, Ns);
@@ -190,26 +193,23 @@ std::tuple<dr::Complex<Value>, dr::Complex<Value>, Value> mie_s1s2(Value wavelen
                   b_n = (jy_n * jx_dx - jx_n * jy_dy) /
                         (jy_n * hx_dx - hx_n * jy_dy);
 
-        // Horizontal op is not allowed in AD mode
-        // if (dr::any_nested(dr::isnan(a_n)) || dr::any_nested(dr::isnan(b_n)))
-        //     break;
-
         // All subsequent iterations will be nan as well
         auto isnan = dr::isnan(dr::real(a_n)) || dr::isnan(dr::imag(a_n)) ||
                      dr::isnan(dr::real(b_n)) || dr::isnan(dr::imag(b_n));
         auto active = !isnan;
 
-        // Log(Warn, "i: %s", n);
-        // Log(Warn, "a_n: %s", a_n);
-        // Log(Warn, "b_n: %s", b_n);
-
         // Calculate i-th term of S1 and S2
-        Value kn = (2 * fn + 1) / (fn * (fn + 1));
+        Value cn = (2 * fn + 1);
+        Value kn = cn / (fn * (fn + 1));
         dr::masked(S1, active) += kn * (a_n * tau_n + b_n * pi_n);
         dr::masked(S2, active) += kn * (a_n * pi_n + b_n * tau_n);
 
         // Calculate i-th term of factor in denominator
-        dr::masked(Ns, active) += (2 * fn + 1) * (dr::squared_norm(a_n) + dr::squared_norm(b_n));
+        dr::masked(Ns, active) += cn * (dr::squared_norm(a_n) + dr::squared_norm(b_n));
+
+        // Calculate i-th term of Cs and Ct
+        dr::masked(Cs, active) += cn * (dr::squared_norm(a_n) + dr::squared_norm(b_n));
+        dr::masked(Ct, active) += dr::real(cn * (a_n + b_n));
 
         n++;
     }
@@ -217,167 +217,13 @@ std::tuple<dr::Complex<Value>, dr::Complex<Value>, Value> mie_s1s2(Value wavelen
     S1 *= i * dr::rcp(kx);
     S2 *= i * dr::rcp(kx);
 
-    Ns *= 0.5f * dr::FourPi<Value> / dr::squared_norm(kx);
-
-    return { S1, S2, Ns };
-}
-
-/**
- * \brief Evaluates the scattering and extinction cross sections using Lorenz-Mie theory.
- * 
- * \param wavelength
- *      Wavelength of light (units of distance, must be consistent with radius of spheres)
- * 
- * \param radius
- *      Radius of the sphere (units of distance)
- * 
- * \param ior_med
- *      Index of refraction of the host medium (complex-valued)
- * 
- * \param ior_sph
- *      index of refraction of the sphere (complex-valued)
- * 
- * \param nmax
- *      Number of terms in the infinite series that should be used (-1: automatic)
- * 
- * \return A tuple (Cs, Ct) consisting of
- *
- *     Cs          Scattering cross section (units of 1/(distance * wavelength))
- *
- *     Ct          Extinction cross section (units of 1/(distance * wavelength))
- * 
-*/
-template <typename Value, typename Int>
-std::tuple<Value, Value> mie_xsections(Value wavelengths, Value radius, dr::Complex<Value> ior_med, dr::Complex<Value> ior_sph, Int nmax_) {
-    using Complex2v = dr::Complex<Value>;
-    using Array2v = dr::Array<Value, 2>;
-
-    // Relative index of refraction
-    Complex2v m = ior_sph * dr::rcp(ior_med);
-
-    // Wave numbers
-    Complex2v kx = dr::TwoPi<Value> * ior_med * dr::rcp(wavelengths);
-    Complex2v ky = dr::TwoPi<Value> * ior_sph * dr::rcp(wavelengths);
-
-    // Size parameters
-    Complex2v x = kx * radius;
-    Complex2v y = ky * radius;
-
-    // Related constants
-    Complex2v m_sq = dr::sqr(m),
-              rcp_x = dr::rcp(x),
-              rcp_y = dr::rcp(y),
-              i(0, 1);
-
-    Value x_norm = dr::norm(x);
-    Value y_norm = dr::norm(y);
-
-    Int x_nmax = nmax_;
-    Int y_nmax = nmax_;
-
-    // Default stopping criterion, [Mishchenko and Yang 2018]
-    // if (x_nmax == -1) {
-    //     x_nmax = (Int) dr::max_nested(8 + x_norm + 4.05f * dr::pow(x_norm, 1.f / 3.f));
-    //     y_nmax = (Int) dr::max_nested(8 + y_norm + 4.05f * dr::pow(y_norm, 1.f / 3.f));
-    // }
-
-    // Default starting n for downward recurrence of ratio j_n(z) / j_{n-1}(z)
-    Int x_ndown = x_nmax + 8 * (Int) dr::sqrt(x_nmax) + 3;
-    Int y_ndown = y_nmax + 8 * (Int) dr::sqrt(y_nmax) + 3;
-
-    // Calculate ratio j_n(z) / j_{n-1}(z) by downward recurrence for z = x
-    std::vector<Complex2v> j_ratio_x(x_ndown);
-    Complex2v j_ratio_x_n = x * dr::rcp(2.f * x_ndown + 1);
-
-    Int n = x_ndown - 1;
-    dr::Loop<dr::mask_t<Int>> loop_x("Calculate ratio j_n(z) / j_{n-1}(z) for z = x", 
-                          /* loop state: */ n, j_ratio_x_n, j_ratio_x);
-
-    while (loop_x(n >= 1)) {
-        Complex2v kx_n = Value(2 * n + 1) * rcp_x;
-        j_ratio_x[n] = j_ratio_x_n = dr::rcp(kx_n - j_ratio_x_n);
-        n--;
-    }
-
-    // Calculate ratio j_n(z) / j_{n-1}(z) by downward recurrence for z = y
-    std::vector<Complex2v> j_ratio_y(y_ndown);
-    Complex2v j_ratio_y_n = y * dr::rcp(2.f * y_ndown + 1);
-
-    n = y_ndown - 1;
-    dr::Loop<dr::mask_t<Int>> loop_y("Calculate ratio j_n(z) / j_{n-1}(z) for z = y", 
-                          /* loop state: */ n, j_ratio_y_n, j_ratio_y);
-
-    while (loop_y(n >= 1)) {
-        Complex2v ky_n = Value(2 * n + 1) * rcp_y;
-        j_ratio_y[n] = j_ratio_y_n = dr::rcp(ky_n - j_ratio_y_n);
-        n--;
-    }
-
-    // Variables for upward recurrences of Bessel fcts.
-    Complex2v jx_0 = dr::sin(x) * rcp_x,
-              jy_0 = dr::sin(y) * rcp_y;
-
-    // Variables for upward recurrences of Hankel fcts.
-    Complex2v h_exp = dr::exp(i * x) * rcp_x,
-              hx_0 = -i * h_exp,
-              hx_1 = -h_exp * (1.f + i * rcp_x);
-
-    // Accumulation variables for cross sections
-    Value Cs = 0, Ct = 0;
-
-    n = 1;
-    dr::Loop<dr::mask_t<Int>> loop_mie("Calculate Cs and Ct terms", 
-                             /* loop state: */ n, j_ratio_x_n, j_ratio_y_n, 
-                             jx_0, jy_0, hx_0, hx_1, Cs, Ct);
-
-    while (loop_mie(n <= x_nmax)) {
-        Value fn = n;
-        j_ratio_x_n = j_ratio_x[n];
-        j_ratio_y_n = j_ratio_y[n];
-
-        // Upward recurrences for Bessel and Hankel functions
-        Complex2v hx_n, hx_dx;
-        if (n == 1) {
-            hx_n = hx_1;
-            hx_dx = x * hx_0 - fn * hx_1;
-        } else {
-            hx_n = (2 * fn - 1) * rcp_x * hx_1 - hx_0;
-            hx_dx = x * hx_1 - fn * hx_n;
-
-            hx_0 = hx_1; hx_1 = hx_n;
-        }
-
-        Complex2v jx_n = j_ratio_x_n * jx_0,
-                  jy_n = j_ratio_y_n * jy_0,
-                  jx_dx = x * jx_0 - fn * jx_n,
-                  jy_dy = y * jy_0 - fn * jy_n;
-
-        jx_0 = jx_n; jy_0 = jy_n;
-
-        // Lorenz-Mie coefficients (Eqs. 9, 10)
-        Complex2v a_n = (m_sq * jy_n * jx_dx - jx_n * jy_dy) /
-                        (m_sq * jy_n * hx_dx - hx_n * jy_dy),
-                  b_n = (jy_n * jx_dx - jx_n * jy_dy) /
-                        (jy_n * hx_dx - hx_n * jy_dy);
-
-        // All subsequent iterations will be nan as well
-        auto isnan = dr::isnan(dr::real(a_n)) || dr::isnan(dr::imag(a_n)) ||
-                     dr::isnan(dr::real(b_n)) || dr::isnan(dr::imag(b_n));
-        auto active = !isnan;
-
-        // Calculate i-th term of Cs and Ct
-        Value kn = (2 * fn + 1);
-        dr::masked(Cs, active) += kn * (dr::squared_norm(a_n) + dr::squared_norm(b_n));
-        dr::masked(Ct, active) += dr::real(kn * (a_n + b_n));
-
-        n++;
-    }
-
     Value k = dr::TwoPi<Value> / dr::squared_norm(kx); // Does this assume the medium is non-absorbing (i.e. kx is not actually complex)?
+    
+    Ns *= k;
     Cs *= k;
     Ct *= k;
 
-    return { Cs, Ct };
+    return { S1, S2, Ns, Cs, Ct };
 }
 
 NAMESPACE_END(mitsuba)
