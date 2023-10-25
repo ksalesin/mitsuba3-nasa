@@ -132,7 +132,7 @@ public:
         if (m_size_distr->is_monodisperse()) {
             Float radius = m_size_distr->min_radius();
 
-            auto [s1, s2, ns, Cs, Ct] = mie(wavelengths_u, 
+            auto [s1, s2, ns, Cs, Ct] = mie<Float>(wavelengths_u, 
                                             UnpolarizedSpectrum(mu), 
                                             UnpolarizedSpectrum(radius), 
                                             dr::Complex<UnpolarizedSpectrum>(m_ior_med), 
@@ -145,10 +145,6 @@ public:
                 phase_val = 0.5f * (dr::squared_norm(s1) + dr::squared_norm(s2)) * dr::rcp(ns);
             }
         } else {
-            // Get radius integration interval
-            Float min_radius = m_size_distr->min_radius();
-            Float max_radius = m_size_distr->max_radius();
-
             UnpolarizedSpectrum Cs_avg(0.f);
             Spectrum phase_r;
 
@@ -156,13 +152,15 @@ public:
             uint32_t g = m_size_distr->n_gauss();
             uint32_t i = 0;
 
+            dr::scoped_set_flag guard(JitFlag::LoopRecord, false);
+
             dr::Loop<dr::mask_t<uint32_t>> loop_gauss("Integrate over distribution of sizes", 
                                     /* loop state: */ i, Cs_avg, phase_r, phase_val);
 
             while (loop_gauss(i < g)) {
                 auto [radius, weight, sdf] = m_size_distr->eval_gauss(i);
 
-                auto [s1, s2, ns, Cs, Ct] = mie(wavelengths_u, 
+                auto [s1, s2, ns, Cs, Ct] = mie<Float>(wavelengths_u, 
                                                 UnpolarizedSpectrum(mu), 
                                                 UnpolarizedSpectrum(radius), 
                                                 dr::Complex<UnpolarizedSpectrum>(m_ior_med), 
@@ -178,8 +176,8 @@ public:
                 Cs_avg += weight * sdf * Cs;
                 phase_val += weight * sdf * Cs * phase_r;
 
-                dr::schedule(Cs_avg, phase_val);
-                dr::eval();
+                // dr::schedule(Cs_avg, phase_val);
+                // dr::eval();
 
                 i++;
             }

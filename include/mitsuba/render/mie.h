@@ -42,14 +42,14 @@ NAMESPACE_BEGIN(mitsuba)
  * 
  *     Ct          Extinction cross section (units of 1/(distance * wavelength))
 */
-template <typename Value, typename Int>
-std::tuple<dr::Complex<Value>, dr::Complex<Value>, Value, Value, Value> 
-mie(Value wavelengths, Value mu, Value radius, dr::Complex<Value> ior_med, 
-    dr::Complex<Value> ior_sph, Int nmax_) {
-
-    using ScalarValue = dr::scalar_t<Value>;
+template <typename Float, typename Value>
+std::tuple<dr::Complex<Value>, dr::Complex<Value>, Value, Value, Value>
+mie(Value wavelengths, Value mu, Value radius, dr::Complex<Value> ior_med,
+    dr::Complex<Value> ior_sph, int nmax_) {
+ 
     using Complex2v = dr::Complex<Value>;
-    using Array2v = dr::Array<Value, 2>;
+    using Int = dr::int32_array_t<Float>;
+    using Bool = dr::bool_array_t<Float>;
 
     // Relative index of refraction
     Complex2v m = ior_sph * dr::rcp(ior_med);
@@ -71,53 +71,48 @@ mie(Value wavelengths, Value mu, Value radius, dr::Complex<Value> ior_med,
     Value x_norm = dr::norm(x);
     Value y_norm = dr::norm(y);
 
-    Int x_nmax = nmax_;
-    Int y_nmax = nmax_;
+    int x_nmax = nmax_, y_nmax = nmax_;
 
     // Default stopping criterion, [Mishchenko and Yang 2018]
-    if constexpr (dr::is_jit_v<Value>) {
-        ScalarValue x_tmp = x_norm[0][0], y_tmp = y_norm[0][0];
-        dr::masked(x_nmax, nmax_ == -1) = (Int) (8 + x_tmp + 4.05f * dr::cbrt(x_tmp));
-        dr::masked(y_nmax, nmax_ == -1) = (Int) (8 + y_tmp + 4.05f * dr::cbrt(y_tmp));
-    } else {
-        dr::masked(x_nmax, nmax_ == -1) = (Int) dr::max_nested(8 + x_norm + 4.05f * dr::cbrt(x_norm));
-        dr::masked(y_nmax, nmax_ == -1) = (Int) dr::max_nested(8 + y_norm + 4.05f * dr::cbrt(y_norm));
+    if (nmax_ == -1) {
+        x_nmax = (int) dr::max_nested(8 + x_norm + 4.05f * dr::cbrt(x_norm));
+        y_nmax = (int) dr::max_nested(8 + y_norm + 4.05f * dr::cbrt(y_norm));
     }
-
-    // Above this, drjit gives an error (need to investigate further)
-    x_nmax = dr::minimum(x_nmax, (Int) 1000);
-    y_nmax = dr::minimum(y_nmax, (Int) 1000);
-
+    
     // Default starting n for downward recurrence of ratio j_n(z) / j_{n-1}(z)
-    Int x_ndown = x_nmax + 8 * (Int) dr::sqrt(x_nmax) + 3;
-    Int y_ndown = y_nmax + 8 * (Int) dr::sqrt(y_nmax) + 3;
+    int x_ndown = x_nmax + 8 * (int) dr::sqrt(x_nmax) + 3;
+    int y_ndown = y_nmax + 8 * (int) dr::sqrt(y_nmax) + 3;
 
     // Calculate ratio j_n(z) / j_{n-1}(z) by downward recurrence for z = x
     std::vector<Complex2v> j_ratio_x(x_ndown);
     Complex2v j_ratio_x_n = x * dr::rcp(2.f * x_ndown + 1);
 
-    Int n = x_ndown - 1;
-    dr::Loop<dr::mask_t<Int>> loop_x("Calculate ratio j_n(z) / j_{n-1}(z) for z = x", 
-                          /* loop state: */ n, j_ratio_x_n, j_ratio_x);
+    dr::scoped_set_flag guard(JitFlag::LoopRecord, false);
+
+    int n_i = x_ndown - 1;
+    Int n = n_i;
+    dr::Loop<Bool> loop_x("Calculate ratio j_n(z) / j_{n-1}(z) for z = x", 
+                          /* loop state: */ j_ratio_x_n, n);
 
     while (loop_x(n >= 1)) {
         Complex2v kx_n = Value(2 * n + 1) * rcp_x;
-        j_ratio_x[n] = j_ratio_x_n = dr::rcp(kx_n - j_ratio_x_n);
-        n--;
+        j_ratio_x[n_i] = j_ratio_x_n = dr::rcp(kx_n - j_ratio_x_n);
+        n--; n_i--;
     }
 
     // Calculate ratio j_n(z) / j_{n-1}(z) by downward recurrence for z = y
     std::vector<Complex2v> j_ratio_y(y_ndown);
     Complex2v j_ratio_y_n = y * dr::rcp(2.f * y_ndown + 1);
 
-    n = y_ndown - 1;
-    dr::Loop<dr::mask_t<Int>> loop_y("Calculate ratio j_n(z) / j_{n-1}(z) for z = y", 
-                          /* loop state: */ n, j_ratio_y_n, j_ratio_y);
+    n_i = y_ndown - 1;
+    n = n_i;
+    dr::Loop<Bool> loop_y("Calculate ratio j_n(z) / j_{n-1}(z) for z = y", 
+                          /* loop state: */ j_ratio_y_n, n);
 
     while (loop_y(n >= 1)) {
         Complex2v ky_n = Value(2 * n + 1) * rcp_y;
-        j_ratio_y[n] = j_ratio_y_n = dr::rcp(ky_n - j_ratio_y_n);
-        n--;
+        j_ratio_y[n_i] = j_ratio_y_n = dr::rcp(ky_n - j_ratio_y_n);
+        n--; n_i--;
     }
 
     // Variables for upward recurrences of Bessel fcts.
@@ -142,16 +137,16 @@ mie(Value wavelengths, Value mu, Value radius, dr::Complex<Value> ior_med,
     Value Cs = 0, Ct = 0;
 
     // Mask active = true;
-    n = 1;
-    dr::Loop<dr::mask_t<Int>> loop_mie("Calculate S1, S2, Ns, Cs, and Ct", 
-                             /* loop state: */ n, j_ratio_x_n, j_ratio_y_n, 
-                             jx_0, jy_0, hx_0, hx_1, pi_0, pi_1, 
-                             S1, S2, Ns);
+    n_i = 1;
+    n = n_i;
+    dr::Loop<Bool> loop_mie("Calculate S1, S2, Ns, Cs, and Ct", 
+                             /* loop state: */ jx_0, jy_0, hx_0, hx_1, 
+                             pi_0, pi_1, S1, S2, Ns, Cs, Ct, n);
 
     while (loop_mie(n <= x_nmax)) {
         Value fn = n;
-        j_ratio_x_n = j_ratio_x[n];
-        j_ratio_y_n = j_ratio_y[n];
+        j_ratio_x_n = j_ratio_x[n_i];
+        j_ratio_y_n = j_ratio_y[n_i];
 
         // Upward recurrences for Bessel and Hankel functions
         Complex2v hx_n, hx_dx;
@@ -211,7 +206,7 @@ mie(Value wavelengths, Value mu, Value radius, dr::Complex<Value> ior_med,
         dr::masked(Cs, active) += cn * (dr::squared_norm(a_n) + dr::squared_norm(b_n));
         dr::masked(Ct, active) += dr::real(cn * (a_n + b_n));
 
-        n++;
+        n++; n_i++;
     }
 
     S1 *= i * dr::rcp(kx);
