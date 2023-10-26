@@ -83,6 +83,17 @@ public:
             scene, sensor, seed, spp, develop, evaluate, thread_count);
     }
 
+    TensorXf render_test(Scene *scene,
+                         Sensor *sensor,
+                         uint32_t seed,
+                         uint32_t spp,
+                         bool develop,
+                         bool evaluate,
+                         size_t thread_count) override {
+        PYBIND11_OVERRIDE(TensorXf, SamplingIntegrator, render_test,
+            scene, sensor, seed, spp, develop, evaluate, thread_count);
+    }
+
     TensorXf render_forward(Scene* scene,
                             void* params,
                             Sensor *sensor,
@@ -177,6 +188,22 @@ public:
             return AdjointIntegrator::render_1(scene, sensor, seed, spp, develop, evaluate, thread_count);
     }
 
+    TensorXf render_test(Scene *scene,
+                         Sensor *sensor,
+                         uint32_t seed,
+                         uint32_t spp,
+                         bool develop,
+                         bool evaluate,
+                         size_t thread_count) override {
+        py::gil_scoped_acquire gil;
+        py::function render_override = py::get_override(this, "render_test");
+
+        if (render_override)
+            return render_override(scene, sensor, seed, spp, develop, evaluate, thread_count).template cast<TensorXf>();
+        else
+            return AdjointIntegrator::render_test(scene, sensor, seed, spp, develop, evaluate, thread_count);
+    }
+
     void sample(const Scene *scene, const Sensor *sensor, Sampler *sampler,
                 ImageBlock *block, ScalarFloat sample_scale) const override {
         py::gil_scoped_acquire gil;
@@ -246,6 +273,16 @@ public:
                       bool evaluate,
                       size_t thread_count) override {
         PYBIND11_OVERRIDE(Spectrum, Base, render_1, scene, sensor, seed, spp, develop, evaluate, thread_count);
+    }
+
+    TensorXf render_test(Scene *scene,
+                         Sensor *sensor,
+                         uint32_t seed,
+                         uint32_t spp,
+                         bool develop,
+                         bool evaluate,
+                         size_t thread_count) override {
+        PYBIND11_OVERRIDE(TensorXf, Base, render_test, scene, sensor, seed, spp, develop, evaluate, thread_count);
     }
 
     TensorXf render_forward(Scene* scene,
@@ -371,6 +408,24 @@ MI_PY_EXPORT(Integrator) {
                 py::gil_scoped_release release;
                 ScopedSignalHandler sh(integrator);
                 return integrator->render_1(scene, sensor_index, seed, spp,
+                                          develop, evaluate, thread_count);
+            })
+        .def(
+            "render_test",
+            [&](Integrator *integrator, Scene *scene, Sensor *sensor,
+                uint32_t seed, uint32_t spp, bool develop, bool evaluate, size_t thread_count) {
+                py::gil_scoped_release release;
+                ScopedSignalHandler sh(integrator);
+                return integrator->render_test(scene, sensor, seed, spp, develop,
+                                          evaluate, thread_count);
+            })
+        .def(
+            "render_test",
+            [&](Integrator *integrator, Scene *scene, uint32_t sensor_index,
+                uint32_t seed, uint32_t spp, bool develop, bool evaluate, size_t thread_count) {
+                py::gil_scoped_release release;
+                ScopedSignalHandler sh(integrator);
+                return integrator->render_test(scene, sensor_index, seed, spp,
                                           develop, evaluate, thread_count);
             })
         .def_method(Integrator, cancel)

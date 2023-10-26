@@ -458,6 +458,57 @@ class _Render1Op(dr.CustomOp):
     def name(self):
         return "Render1Op"
 
+class _RenderTestOp(dr.CustomOp):
+    """ Analogous to above render(), but accumulates all pixels 
+        and returns a single Spectrum value. """
+        
+    def __init__(self) -> None:
+        super().__init__()
+        self.variant = mi.variant()
+
+    def eval(self, scene, sensor, params, integrator, seed, spp):
+        self.scene = scene
+        self.sensor = sensor
+        self.params = params
+        self.integrator = integrator
+        self.seed = seed
+        self.spp = spp
+
+        with dr.suspend_grad():
+            return self.integrator.render_test(
+                scene=self.scene,
+                sensor=sensor,
+                seed=seed[0],
+                spp=spp[0],
+                develop=True,
+                evaluate=False,
+                thread_count=0
+            )
+
+    def forward(self):
+        mi.set_variant(self.variant)
+        if not isinstance(self.params, mi.SceneParameters):
+            raise Exception('An instance of mi.SceneParameter containing the '
+                            'scene parameter to be differentiated should be '
+                            'provided to mi.render() if forward derivatives are '
+                            'desired!')
+        self.set_grad_out(
+            self.integrator.render_forward(self.scene, self.params, self.sensor,
+                                           self.seed[1], self.spp[1]))
+
+    def backward(self):
+        mi.set_variant(self.variant)
+        if not isinstance(self.params, mi.SceneParameters):
+            raise Exception('An instance of mi.SceneParameter containing the '
+                            'scene parameter to be differentiated should be '
+                            'provided to mi.render() if backward derivatives are '
+                            'desired!')
+        self.integrator.render_test_backward(self.scene, self.params, self.grad_out(),
+                                             self.sensor, self.seed[1], self.spp[1])
+
+    def name(self):
+        return "RenderTestOp"
+    
 def render(scene: mi.Scene,
            params: Any = None,
            sensor: Union[int, mi.Sensor] = 0,
@@ -616,6 +667,51 @@ def render_1(scene: mi.Scene,
                         'to ensure unbiased gradient computation!')
 
     return dr.custom(_Render1Op, scene, sensor, params, integrator,
+                     (seed, seed_grad), (spp, spp_grad))
+
+def render_test(scene: mi.Scene,
+                params: Any = None,
+                sensor: Union[int, mi.Sensor] = 0,
+                integrator: mi.Integrator = None,
+                seed: int = 0,
+                seed_grad: int = 0,
+                spp: int = 0,
+                spp_grad: int = 0) -> mi.TensorXf:
+    """ Analogous to above render(), but accumulates all pixels 
+        and returns a single Spectrum value. """
+        
+    if params is not None and not isinstance(params, mi.SceneParameters):
+        raise Exception('params should be an instance of mi.SceneParameter!')
+
+    assert isinstance(scene, mi.Scene)
+
+    if integrator is None:
+        integrator = scene.integrator()
+
+    if integrator is None:
+        raise Exception('No integrator specified! Add an integrator in the scene '
+                        'description or provide an integrator directly as argument.')
+
+    if isinstance(sensor, int):
+        if len(scene.sensors()) == 0:
+            raise Exception('No sensor specified! Add a sensor in the scene '
+                            'description or provide a sensor directly as argument.')
+        sensor = scene.sensors()[sensor]
+
+    assert isinstance(integrator, mi.Integrator)
+    assert isinstance(sensor, mi.Sensor)
+
+    if spp_grad == 0:
+        spp_grad = spp
+
+    if seed_grad == 0:
+        # Compute a seed that de-correlates the primal and differential phase
+        seed_grad = mi.sample_tea_32(seed, 1)[0]
+    elif seed_grad == seed:
+        raise Exception('The primal and differential seed should be different '
+                        'to ensure unbiased gradient computation!')
+
+    return dr.custom(_RenderTestOp, scene, sensor, params, integrator,
                      (seed, seed_grad), (spp, spp_grad))
 
 # ------------------------------------------------------------------------------

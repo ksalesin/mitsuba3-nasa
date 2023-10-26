@@ -124,6 +124,38 @@ public:
                       bool evaluate = true,
                       size_t thread_count = 0);
 
+    /**
+     * \brief Perform the main rendering job. 
+     * 
+     * Instead of writing a multi-pixel image, this render loop returns 
+     * a single spectrum that is the accumulated and normalized radiance 
+     * of all paths. 
+     * 
+     * Designed to mimic a scientific radiance meter or polarimeter.
+     */
+    virtual TensorXf render_test(Scene *scene,
+                                 Sensor *sensor,
+                                 uint32_t seed = 0,
+                                 uint32_t spp = 0,
+                                 bool develop = true,
+                                 bool evaluate = true,
+                                 size_t thread_count = 0) = 0;
+
+    /**
+     * \brief Render the scene
+     *
+     * This function is just a thin wrapper around the previous \ref render()
+     * overload. It accepts a sensor *index* instead and renders the scene
+     * using sensor 0 by default.
+     */
+    TensorXf render_test(Scene *scene,
+                         uint32_t sensor_index = 0,
+                         uint32_t seed = 0,
+                         uint32_t spp = 0,
+                         bool develop = true,
+                         bool evaluate = true,
+                         size_t thread_count = 0);
+
     // =========================================================================
     //! @{ \name Default backwards and forwards differentiation
     // =========================================================================
@@ -448,6 +480,14 @@ public:
                       bool evaluate = true,
                       size_t thread_count = 0) override;
 
+    TensorXf render_test(Scene *scene,
+                         Sensor *sensor,
+                         uint32_t seed = 0,
+                         uint32_t spp = 0,
+                         bool develop = true,
+                         bool evaluate = true,
+                         size_t thread_count = 0) override;
+
     //! @}
     // =========================================================================
 
@@ -586,7 +626,15 @@ public:
                       bool develop = true,
                       bool evaluate = true,
                       size_t thread_count = 0) override;
-                      
+
+    TensorXf render_test(Scene *scene,
+                         Sensor *sensor,
+                         uint32_t seed = 0,
+                         uint32_t spp = 0,
+                         bool develop = true,
+                         bool evaluate = true,
+                         size_t thread_count = 0) override;
+
     //! @}
     // =========================================================================
 

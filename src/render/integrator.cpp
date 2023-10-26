@@ -57,6 +57,21 @@ Integrator<Float, Spectrum>::render_1(Scene *scene,
 }
 
 MI_VARIANT typename Integrator<Float, Spectrum>::TensorXf
+Integrator<Float, Spectrum>::render_test(Scene *scene,
+                                         uint32_t sensor_index,
+                                         uint32_t seed,
+                                         uint32_t spp,
+                                         bool develop,
+                                         bool evaluate,
+                                         size_t thread_count) {
+    if (sensor_index >= scene->sensors().size())
+        Throw("Scene::render_test(): sensor index %i is out of bounds!", sensor_index);
+
+    return render_test(scene, scene->sensors()[sensor_index].get(),
+                  seed, spp, develop, evaluate, thread_count);
+}
+
+MI_VARIANT typename Integrator<Float, Spectrum>::TensorXf
 Integrator<Float, Spectrum>::render_forward(Scene* scene,
                                             void* /*params*/,
                                             Sensor *sensor,
@@ -727,6 +742,350 @@ SamplingIntegrator<Float, Spectrum>::render_1(Scene *scene,
     return 0.f;
 }
 
+// MI_VARIANT typename SamplingIntegrator<Float, Spectrum>::TensorXf 
+// SamplingIntegrator<Float, Spectrum>::render_test(Scene *scene,
+//                                                  Sensor *sensor,
+//                                                  uint32_t seed,
+//                                                  uint32_t spp,
+//                                                  bool /* develop */,
+//                                                  bool evaluate,
+//                                                  size_t thread_count) {
+//     ScopedPhase sp(ProfilerPhase::Render);
+//     m_stop = false;
+
+//     if constexpr (is_rgb_v<Spectrum>)
+//         Throw("This render loop only supports monochromatic and spectral modes!");
+
+//     ref<Film> film = sensor->film();
+//     ScalarVector2u film_size = film->crop_size();
+
+//     uint32_t sub_film_size = film_size.y();
+//     uint32_t sensor_count = film_size.x() / sub_film_size;
+
+//     if (sub_film_size * sensor_count != film_size.x()) {
+//         Throw("render_test: the horizontal resolution (currently %u) must "
+//                   "be divisible by the number of child sensors (%zu)!",
+//                   film_size.x(), sensor_count);
+//     }
+
+//     // Potentially adjust the number of samples per pixel if spp != 0
+//     Sampler *sampler = sensor->sampler();
+//     if (spp)
+//         sampler->set_sample_count(spp);
+//     spp = sampler->sample_count();
+
+//     uint32_t spp_per_pass = (m_samples_per_pass == (uint32_t) -1)
+//                                     ? spp
+//                                     : std::min(m_samples_per_pass, spp);
+
+//     if ((spp % spp_per_pass) != 0)
+//         Throw("sample_count (%d) must be a multiple of spp_per_pass (%d).",
+//               spp, spp_per_pass);
+
+//     uint32_t n_passes = spp / spp_per_pass;
+//     uint32_t total_samples = spp_per_pass * n_passes;
+//     uint32_t total_samples_done = 0;
+
+//     uint32_t n_threads = (uint32_t) (thread_count > 0) ? thread_count : Thread::thread_count();
+//     if (n_threads > total_samples)
+//         n_threads = total_samples;
+
+//     Thread::set_thread_count(n_threads);
+
+//     std::vector<std::string> channels;
+//     const size_t n_wav = dr::array_size_v<UnpolarizedSpectrum>;
+
+//     // AOVs are auto-detected based on variant
+//     if constexpr(is_monochromatic_v<Spectrum>) {
+//         if constexpr(is_polarized_v<Spectrum>) {
+//             for (size_t i = 0; i < 4; ++i)
+//                 channels.insert(channels.begin() + i, std::string(1, "IQUV"[i]));
+//         } else {
+//             channels.insert(channels.begin(), std::string("I"));
+//         }
+//     } else if constexpr (is_spectral_v<Spectrum>) {
+//         if constexpr(is_polarized_v<Spectrum>) {
+//             const size_t n_spectrum = dr::array_size_v<Spectrum>;
+//             for (size_t i = 0; i < 4; ++i) {
+//                 for (size_t k = 0; k < n_wav; ++k) {
+//                     size_t j = i * n_wav + k;
+//                     channels.insert(channels.begin() + j, std::string(1, "IQUV"[i]) + ".λ" + std::to_string(k));
+//                 }
+//             }
+//         } else {
+//             for (size_t k = 0; k < n_wav; ++k)
+//                 channels.insert(channels.begin(), std::string("I.λ" + std::to_string(k)));
+//         }
+//     }
+
+//     size_t n_channels = channels.size();
+
+//     // Initialize final block
+//     ref<ImageBlock> final_block = new ImageBlock(film_size,
+//                                                  ScalarPoint2i(0, 0),
+//                                                  n_channels,
+//                                                  film->rfilter(),
+//                                                  /* border */ false,
+//                                                  /* normalize */ false,
+//                                                  /* coalesce */ false,
+//                                                  /* warn_negative */ false,
+//                                                  /* warn_invalid */ false);
+//     final_block->clear();
+
+//     // Start the render timer (used for timeouts & log messages)
+//     m_render_timer.reset();
+
+//     if constexpr (!dr::is_jit_v<Float>) {
+//         Log(Info, "Starting render job (%ux%u, %u sample%s,%s %u thread%s)",
+//             film_size.x(), film_size.y(), spp, spp == 1 ? "" : "s",
+//             n_passes > 1 ? tfm::format(" %u passes,", n_passes) : "", n_threads,
+//             n_threads == 1 ? "" : "s");
+
+//         if (m_timeout > 0.f)
+//             Log(Info, "Timeout specified: %.2f seconds.", m_timeout);
+
+//         // Set block counter to zero
+//         m_block_count = 0;
+
+//         ScalarVector2u block_size(sub_film_size, sub_film_size);
+
+//         ref<ProgressReporter> progress = new ProgressReporter("Rendering");
+//         std::mutex mutex;
+
+//         // Grain size for parallelization
+//         uint32_t grain_size = std::max(total_samples / n_threads, 1u);
+
+//         // Avoid overlaps in RNG seeding RNG when a seed is manually specified
+//         seed *= dr::prod(film_size);
+
+//         ThreadEnvironment env;
+//         dr::parallel_for(
+//             dr::blocked_range<size_t>(0, total_samples, grain_size),
+//             [&](const dr::blocked_range<size_t> &range) {
+//                 ScopedSetThreadEnvironment set_env(env);
+
+//                 // Fork a non-overlapping sampler for the current worker
+//                 ref<Sampler> sampler = sensor->sampler()->fork();
+
+//                 uint32_t range_size = range.end() - range.begin();
+
+//                 for (size_t i = 0; i < sensor_count; i++) {
+//                     const ScalarPoint2i block_offset(i * sub_film_size, 0);
+
+//                     // Initialize block
+//                     ref<ImageBlock> block = new ImageBlock(block_size,
+//                                                            block_offset,
+//                                                            n_channels,
+//                                                            film->rfilter(),
+//                                                            /* border */ false,
+//                                                            /* normalize */ false,
+//                                                            /* coalesce */ false,
+//                                                            /* warn_negative */ false,
+//                                                            /* warn_invalid */ false);
+//                     block->clear();
+
+//                     std::unique_ptr<Float[]> aovs(new Float[n_channels]);
+
+//                     uint32_t block_id;
+
+//                     /* Critical section: assign unique block id */ {
+//                         std::lock_guard<std::mutex> lock(mutex);
+//                         block_id = m_block_count;
+//                         m_block_count++;
+//                     }
+
+//                     render_block(scene, sensor, sampler, block, aovs.get(),
+//                                  range_size, seed, block_id, sub_film_size);
+
+//                     /* Critical section: update image */ {
+//                         std::lock_guard<std::mutex> lock(mutex);
+//                         final_block->put_block(block);
+//                     }
+//                 }
+
+//                 /* Critical section: update progress */ {
+//                     std::lock_guard<std::mutex> lock(mutex);
+//                     total_samples_done += range_size;
+//                     progress->update(total_samples_done / (ScalarFloat) total_samples);
+//                 }
+//             }
+//         );
+
+//     } else {
+//         dr::sync_thread(); // Separate from scene initialization (for timings)
+
+//         Log(Info, "Starting render job (%ux%u, %u sample%s%s)",
+//             film_size.x(), film_size.y(), spp, spp == 1 ? "" : "s",
+//             n_passes > 1 ? tfm::format(", %u passes,", n_passes) : "");
+
+//         if (n_passes > 1 && !evaluate) {
+//             Log(Warn, "render(): forcing 'evaluate=true' since multi-pass "
+//                       "rendering was requested.");
+//             evaluate = true;
+//         }
+
+//         size_t wavefront_size = (size_t) film_size.x() *
+//                                 (size_t) film_size.y() * (size_t) spp_per_pass,
+//                wavefront_size_limit =
+//                    dr::is_llvm_v<Float> ? 0xffffffffu : 0x40000000u;
+
+//         if (wavefront_size > wavefront_size_limit)
+//             Throw("Tried to perform a %s-based rendering with a total sample "
+//                   "count of %zu, which exceeds 2^%zu = %zu (the upper limit "
+//                   "for this backend). Please use fewer samples per pixel or "
+//                   "render using multiple passes.",
+//                   dr::is_llvm_v<Float> ? "LLVM JIT" : "OptiX",
+//                   wavefront_size, dr::log2i(wavefront_size_limit + 1),
+//                   wavefront_size_limit);
+
+//         // Inform the sampler about the passes (needed in vectorized modes)
+//         sampler->set_samples_per_wavefront(spp_per_pass);
+
+//         // Seed the underlying random number generators, if applicable
+//         sampler->seed(seed, (uint32_t) wavefront_size);
+
+//         // Only use the ImageBlock coalescing feature when rendering enough samples
+//         final_block->set_coalesce(final_block->coalesce() && spp_per_pass >= 4);
+
+//         // Compute discrete sample position
+//         UInt32 idx = dr::arange<UInt32>((uint32_t) wavefront_size);
+
+//         // Try to avoid a division by an unknown constant if we can help it
+//         uint32_t log_spp_per_pass = dr::log2i(spp_per_pass);
+//         if ((1u << log_spp_per_pass) == spp_per_pass)
+//             idx >>= dr::opaque<UInt32>(log_spp_per_pass);
+//         else
+//             idx /= dr::opaque<UInt32>(spp_per_pass);
+
+//         // Compute the position on the image plane
+//         Vector2u pos;
+//         pos.y() = idx / film_size[0];
+//         pos.x() = dr::fnmadd(film_size[0], pos.y(), idx);
+
+//         // if (film->sample_border())
+//         //     pos -= film->rfilter()->border_size();
+
+//         // pos += film->crop_offset();
+
+//         // Scale factor that will be applied to ray differentials
+//         ScalarFloat diff_scale_factor = dr::rsqrt((ScalarFloat) spp);
+        
+//         Timer timer;
+//         std::unique_ptr<Float[]> aovs(new Float[n_channels]);
+
+//         for (size_t i = 0; i < n_passes; i++) {
+//             render_sample(scene, sensor, sampler, final_block, aovs.get(), pos, 
+//                           diff_scale_factor, true);
+
+//             total_samples_done += spp_per_pass;
+
+//             if (n_passes > 1) {
+//                 sampler->advance(); // Will trigger a kernel launch of size 1
+//                 sampler->schedule_state();
+//                 dr::eval(final_block->tensor());
+//             }
+//         }
+
+//         if (n_passes == 1 && jit_flag(JitFlag::VCallRecord) &&
+//             jit_flag(JitFlag::LoopRecord)) {
+//             Log(Info, "Computation graph recorded. (took %s)",
+//                 util::time_string((float) timer.reset(), true));
+//         }
+
+//         // if (develop) {
+//         //     result = film->develop();
+//         //     dr::schedule(result);
+//         // } else {
+//         //     film->schedule_storage();
+//         // }
+
+//         if (evaluate) {
+//             dr::eval();
+
+//             if (n_passes == 1 && jit_flag(JitFlag::VCallRecord) &&
+//                 jit_flag(JitFlag::LoopRecord)) {
+//                 Log(Info, "Code generation finished. (took %s)",
+//                     util::time_string((float) timer.value(), true));
+
+//                 /* Separate computation graph recording from the actual
+//                    rendering time in single-pass mode */
+//                 m_render_timer.reset();
+//             }
+
+//             dr::sync_thread();
+//         }
+//     }
+
+//     if (!m_stop && (evaluate || !dr::is_jit_v<Float>))
+//         Log(Info, "Rendering finished. (took %s)",
+//             util::time_string((float) m_render_timer.value(), true));
+
+//     // Accumulate radiance value and normalize
+//     auto data = final_block->tensor().array();
+
+//     using TensorXd = dr::Tensor<mitsuba::DynamicBuffer<double>>;
+//     using Array = typename TensorXd::Array;
+
+//     size_t size_flat = sensor_count * n_channels,
+//            shape[2]  = { sensor_count, n_channels };
+
+//     TensorXd result = TensorXd(dr::zeros<Array>(size_flat), 2, shape);
+
+//     Log(Info, "result: %s", result);
+
+//     // const size_t n_subfilm_pixels = sub_film_size * sub_film_size;
+
+//     // if constexpr(dr::is_jit_v<Float>) {
+//     //     UInt32 index = dr::arange<UInt32>(n_subfilm_pixels) * n_channels;
+
+//     //     std::unique_ptr<Float[]> pixel_aovs(new Float[n_channels]);
+
+//     //     // Gather!
+//     //     for (size_t k = 0; k < n_channels; ++k) {
+//     //         pixel_aovs[k] = dr::gather<Float>(data, index);
+
+//     //         // Calling dr::sum() here instead results in compilation error, not sure why
+//     //         for (size_t x = 0; x < n_pixels; x++)
+//     //             result[k] += pixel_aovs[k][x];
+            
+//     //         index++;
+//     //     }
+//     // } else {
+//     //     // Initialize
+//     //     for (size_t k = 0; k < n_channels; k++)
+//     //         result[k] = 0.f;
+
+//     //     // Accumulate each pixel
+//     //     for (size_t x = 0; x < film_size.x(); x++) {
+//     //         for (size_t y = 0; y < film_size.y(); y++) {
+//     //             UInt32 index = dr::fmadd(y, film_size.x(), x) * n_channels;
+//     //             for (size_t k = 0; k < n_channels; k++) {
+//     //                 result[k] += dr::gather<Float>(data, index);
+//     //                 index++;
+//     //             }
+//     //         }
+//     //     }
+//     // }
+
+//     // // Normalize by true number of samples
+//     // ScalarFloat nf = dr::rcp((float) n_subfilm_pixels * total_samples_done);
+//     // for (size_t k = 0; k < n_channels; k++)
+//     //     result[k] *= nf;
+
+//     return result;
+// }
+
+MI_VARIANT typename SamplingIntegrator<Float, Spectrum>::TensorXf 
+SamplingIntegrator<Float, Spectrum>::render_test(Scene *scene,
+                                                Sensor *sensor,
+                                                uint32_t seed,
+                                                uint32_t spp,
+                                                bool /* develop */,
+                                                bool evaluate,
+                                                size_t thread_count) {
+    NotImplementedError("render_test");
+}
+
 MI_VARIANT void SamplingIntegrator<Float, Spectrum>::render_block(const Scene *scene,
                                                                    const Sensor *sensor,
                                                                    Sampler *sampler,
@@ -1186,6 +1545,17 @@ AdjointIntegrator<Float, Spectrum>::render_1(Scene *scene,
                                               bool evaluate,
                                               size_t thread_count) {
     NotImplementedError("render_1");
+}
+
+MI_VARIANT typename AdjointIntegrator<Float, Spectrum>::TensorXf 
+AdjointIntegrator<Float, Spectrum>::render_test(Scene *scene,
+                                                Sensor *sensor,
+                                                uint32_t seed,
+                                                uint32_t spp,
+                                                bool /* develop */,
+                                                bool evaluate,
+                                                size_t thread_count) {
+    NotImplementedError("render_test");
 }
 
 // -----------------------------------------------------------------------------
