@@ -199,6 +199,111 @@ class ADIntegrator(mi.CppADIntegrator):
 
             return self.primal_spectrum
 
+    def render_test(self: mi.SamplingIntegrator,
+                 scene: mi.Scene,
+                 sensor: Union[int, mi.Sensor] = 0,
+                 seed: int = 0,
+                 spp: int = 0,
+                 develop: bool = True,
+                 evaluate: bool = True,
+                 thread_count: int = 0) -> mi.TensorXf:
+        """ Analogous to above render(), but accumulates all pixels 
+           and returns a single Spectrum value. """
+
+        if thread_count != 0:
+            mi.Thread.set_thread_count(thread_count)
+
+        if isinstance(sensor, int):
+            sensor = scene.sensors()[sensor]
+
+        film = sensor.film()
+        film_size = film.crop_size()
+
+        sub_film_size = film_size.y
+        sensor_count = film_size.x / sub_film_size
+
+        if (sub_film_size * sensor_count) != film_size.x:
+            raise Exception("render_test: the horizontal resolution (currently %i)"
+                            " must be divisible by the number of child sensors (%i)!"
+                            % (film_size.x, sensor_count))
+
+        # Disable derivatives in all of the following
+        with dr.suspend_grad():
+            # Prepare the film and sample generator for rendering
+            sampler, spp = self.prepare(
+                sensor=sensor,
+                seed=seed,
+                spp=spp,
+                aovs=self.aov_names()
+            )
+
+            # Generate a set of rays starting at the sensor
+            ray, weight, pos, _ = self.sample_rays(scene, sensor, sampler)
+
+            # Launch the Monte Carlo sampling process in primal mode
+            L, valid, state = self.sample(
+                mode=dr.ADMode.Primal,
+                scene=scene,
+                sampler=sampler,
+                ray=ray,
+                depth=mi.UInt32(0),
+                δL=None,
+                state_in=None,
+                reparam=None,
+                active=mi.Bool(True)
+            )
+
+            # Rotate Stokes reference frames if polarized
+            if mi.is_polarized:
+                L = self.to_sensor_mueller(sensor, ray, L)
+
+            # Accumulate final spectrum
+            self.primal_spectrum = mi.Spectrum(0.0)
+
+            n_wavelengths = len(ray.wavelengths)
+            n_stokes = 4 if mi.is_polarized else 1
+            n_channels = n_wavelengths * n_stokes
+
+            result = dr.zeros(mi.TensorXf, shape=(sensor_count, n_channels))
+
+            print(L)
+
+            # pos = mi.Vector2i()
+            # pos.y = idx // film_size[0]
+            # pos.x = dr.fma(-film_size[0], pos.y, idx)
+
+            # if mi.is_monochromatic:
+            #     if mi.is_polarized:
+            #         for i in range(4):
+            #             result[i, 0, 0] = dr.sum(L[i, 0, 0])
+            #     else:
+            #         self.primal_spectrum[0] = dr.sum(L[0])
+            # elif mi.is_spectral:
+            #     if mi.is_polarized:
+            #         for i in range(4):
+            #             for k in range(n_wavelengths):
+            #                 self.primal_spectrum[i, 0, k, 0] = dr.sum(L[i, 0, k, 0]) # TODO: test
+            #     else:
+            #         for k in range(n_wavelengths):
+            #             self.primal_spectrum[k] = dr.sum(L[k])
+            # else:
+            #     # Never use render_1() in RGB mode
+            #     pass
+
+            # # Normalize
+            # nf = dr.rcp(film_size.x * film_size.y * spp)
+
+            # if mi.is_polarized:
+            #     self.primal_spectrum = self.primal_spectrum @ nf # why does this work without mi.Spectrum(nf) cast?
+            # else:
+            #     self.primal_spectrum *= nf
+
+            # Explicitly delete any remaining unused variables
+            del sampler, ray, weight, pos, L, valid
+            gc.collect()
+
+            return result
+
     def to_sensor_mueller(self: mi.SamplingIntegrator, 
                           sensor: mi.Sensor, 
                           ray: mi.Ray3f, 

@@ -764,7 +764,7 @@ SamplingIntegrator<Float, Spectrum>::render_1(Scene *scene,
 
 //     if (sub_film_size * sensor_count != film_size.x()) {
 //         Throw("render_test: the horizontal resolution (currently %u) must "
-//                   "be divisible by the number of child sensors (%zu)!",
+//                   "be divisible by the number of child sensors (%u)!",
 //                   film_size.x(), sensor_count);
 //     }
 
