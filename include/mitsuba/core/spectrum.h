@@ -472,7 +472,7 @@ std::pair<wavelength_t<Spectrum>, Spectrum> sample_wavelength(Float sample) {
     if constexpr (!is_spectral_v<Spectrum>) {
         DRJIT_MARK_USED(sample);
         // Wavelengths should not be used when rendering in RGB or monochromatic modes.
-        return { {}, 1.f };
+        return { wavelength_t<Spectrum>(400.f), 1.f };
     } else {
         auto wav_sample = math::sample_shifted<wavelength_t<Spectrum>>(sample);
         return sample_rgb_spectrum(wav_sample);
