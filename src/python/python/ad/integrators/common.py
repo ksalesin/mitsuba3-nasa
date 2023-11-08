@@ -242,18 +242,17 @@ class ADIntegrator(mi.CppADIntegrator):
             ray, weight, pos, _ = self.sample_rays(scene, sensor, sampler)
 
             # Launch the Monte Carlo sampling process in primal mode
-            with dr.scoped_set_flag(dr.JitFlag.LoopRecord, False):
-                L, valid, state = self.sample(
-                    mode=dr.ADMode.Primal,
-                    scene=scene,
-                    sampler=sampler,
-                    ray=ray,
-                    depth=mi.UInt32(0),
-                    δL=None,
-                    state_in=None,
-                    reparam=None,
-                    active=mi.Bool(True)
-                )
+            L, valid, state = self.sample(
+                mode=dr.ADMode.Primal,
+                scene=scene,
+                sampler=sampler,
+                ray=ray,
+                depth=mi.UInt32(0),
+                δL=None,
+                state_in=None,
+                reparam=None,
+                active=mi.Bool(True)
+            )
 
             # Rotate Stokes reference frames if polarized
             if mi.is_polarized:
