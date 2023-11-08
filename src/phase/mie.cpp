@@ -176,8 +176,8 @@ public:
                 Cs_avg += weight * sdf * Cs;
                 phase_val += weight * sdf * Cs * phase_r;
 
-                // dr::schedule(Cs_avg, phase_val);
-                // dr::eval();
+                dr::schedule(Cs_avg, phase_val);
+                dr::eval();
 
                 i++;
             }
@@ -221,6 +221,10 @@ public:
                                                  const Point2f &sample,
                                                  Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionSample, active);
+
+        // Otherwise drjit will complain about loops in Mie calculation
+        if (jit_flag(JitFlag::Recording))
+            return { Vector3f(0.f), Spectrum(0.f), 0.f };
         
         // We use a tabulated version of the Mie phase function for sampling in practice
         auto wo  = warp::square_to_uniform_sphere(sample);
@@ -237,6 +241,11 @@ public:
                                         const Vector3f &wo,
                                         Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionEvaluate, active);
+        
+        // Otherwise drjit will complain about loops in Mie calculation
+         if (jit_flag(JitFlag::Recording))
+            return { Spectrum(0.f), 0.f };
+
         Spectrum phase_val = eval_mie(ctx, mi, wo, active);
 
         // We use a tabulated version of the Mie phase function for sampling in practice
