@@ -242,77 +242,61 @@ class ADIntegrator(mi.CppADIntegrator):
             ray, weight, pos, _ = self.sample_rays(scene, sensor, sampler)
 
             # Launch the Monte Carlo sampling process in primal mode
-            L, valid, state = self.sample(
-                mode=dr.ADMode.Primal,
-                scene=scene,
-                sampler=sampler,
-                ray=ray,
-                depth=mi.UInt32(0),
-                δL=None,
-                state_in=None,
-                reparam=None,
-                active=mi.Bool(True)
-            )
+            with dr.scoped_set_flag(dr.JitFlag.LoopRecord, False):
+                L, valid, state = self.sample(
+                    mode=dr.ADMode.Primal,
+                    scene=scene,
+                    sampler=sampler,
+                    ray=ray,
+                    depth=mi.UInt32(0),
+                    δL=None,
+                    state_in=None,
+                    reparam=None,
+                    active=mi.Bool(True)
+                )
 
             # Rotate Stokes reference frames if polarized
             if mi.is_polarized:
                 L = self.to_sensor_mueller(sensor, ray, L)
 
-            # Accumulate final spectrum
-            self.primal_spectrum = mi.Spectrum(0.0)
-
             n_wavelengths = len(ray.wavelengths)
             n_stokes = 4 if mi.is_polarized else 1
-            n_channels = n_wavelengths * n_stokes
 
-            result = dr.zeros(mi.TensorXf, shape=(sensor_count, n_channels))
+            result = dr.zeros(mi.TensorXf, shape=(sensor_count, n_stokes, n_wavelengths))
 
-            # print(L.numpy())
+            # Compute sample positions for each sensor
+            x_block_size = sub_film_size * spp
+            x_ = dr.arange(mi.UInt32, x_block_size)
+            y_ = dr.arange(mi.UInt32, sub_film_size)
+            x, y = dr.meshgrid(x_, y_)
 
-            x_idx = dr.arange(mi.UInt32, sub_film_size)
-            x_idx = dr.repeat(x_idx, sub_film_size * spp)
-            skip = sensor_count * sub_film_size * spp
-            # print('x_idx: ', x_idx.numpy())
-            # print('skip: ', skip)
+            skip = sensor_count * x_block_size
+            base_idx = x + y * skip
 
-            if mi.is_monochromatic:
-                if mi.is_polarized:
-                    for j in range(sensor_count):
-                        start = j * sub_film_size * spp
-                        idx = dr.arange(mi.UInt32, sub_film_size * spp)
-                        idx = dr.tile(idx, sub_film_size)
-                        idx += start
-                        idx += x_idx * skip
+            for j in range(sensor_count):
+                idx = base_idx + j * x_block_size
 
+                if mi.is_monochromatic:
+                    if mi.is_polarized:
                         for i in range(4):
                             sensor_values = dr.gather(mi.Float, L[i, 0, 0], idx)
-                            result[j, i] = dr.sum(sensor_values)
-                else:
-                    for j in range(sensor_count):
-                        start = j * sub_film_size * spp
-                        # print('start: ', start)
-                        idx = dr.arange(mi.UInt32, sub_film_size * spp)
-                        idx = dr.tile(idx, sub_film_size)
-                        # print('idx 1: ', idx.numpy())
-                        idx += start
-                        # print('idx 2: ', idx.numpy())
-                        idx += x_idx * skip
-                        # print('idx 3: ', idx.numpy())
-                        # print(L[0].numpy())
+                            result[j, i, 0] = dr.sum(sensor_values)
+                    else:
                         sensor_values = dr.gather(mi.Float, L[0], idx)
-                        # print(sensor_values.numpy())
-                        result[j, 0] = dr.sum(sensor_values)
-            elif mi.is_spectral:
-                if mi.is_polarized:
-                    for i in range(4):
+                        result[j, 0, 0] = dr.sum(sensor_values)
+                elif mi.is_spectral:
+                    if mi.is_polarized:
+                        for i in range(4):
+                            for k in range(n_wavelengths):
+                                sensor_values = dr.gather(mi.Float, L[k, 0, i], idx) # TODO: Investigate, this seems transposed from what it should be
+                                result[j, i, k] = dr.sum(sensor_values)
+                    else:
                         for k in range(n_wavelengths):
-                            self.primal_spectrum[i, 0, k, 0] = dr.sum(L[i, 0, k, 0]) # TODO: test
+                            sensor_values = dr.gather(mi.Float, L[k], idx)
+                            result[j, 0, k] = dr.sum(sensor_values)
                 else:
-                    for k in range(n_wavelengths):
-                        self.primal_spectrum[k] = dr.sum(L[k])
-            else:
-                # Never use render_1() in RGB mode
-                pass
+                    # Never use render_1() in RGB mode
+                    pass
 
             # Normalize
             nf = dr.rcp(sub_film_size * sub_film_size * spp)
@@ -1404,17 +1388,12 @@ class RBIntegrator(ADIntegrator):
 
             n_wavelengths = len(ray.wavelengths)
             n_stokes = 4 if mi.is_polarized else 1
-            n_channels = n_wavelengths * n_stokes
 
             # Accumulate and normalize final spectrum
-            result = dr.zeros(mi.TensorXf, shape=(sensor_count, n_channels))
+            result = dr.zeros(mi.TensorXf, shape=(sensor_count, n_stokes, n_wavelengths))
 
             with dr.resume_grad():
                 dr.enable_grad(L)
-
-                x_idx = dr.arange(mi.UInt32, sub_film_size)
-                x_idx = dr.repeat(x_idx, sub_film_size * spp)
-                skip = sensor_count * sub_film_size * spp
 
                 # Accumulate into the image block.
                 # After reparameterizing the camera ray, we need to evaluate
@@ -1423,38 +1402,39 @@ class RBIntegrator(ADIntegrator):
                 #   Σ (fi det)
                 # L *= weight * det # <-- this results in backward_from() exception
 
-                if mi.is_monochromatic:
-                    if mi.is_polarized:
-                        for j in range(sensor_count):
-                            start = j * sub_film_size * spp
-                            idx = dr.arange(mi.UInt32, sub_film_size * spp)
-                            idx = dr.tile(idx, sub_film_size)
-                            idx += start
-                            idx += x_idx * skip
+                # Compute sample positions for each sensor
+                x_block_size = sub_film_size * spp
+                x_ = dr.arange(mi.UInt32, x_block_size)
+                y_ = dr.arange(mi.UInt32, sub_film_size)
+                x, y = dr.meshgrid(x_, y_)
 
+                skip = sensor_count * x_block_size
+                base_idx = x + y * skip
+
+                for j in range(sensor_count):
+                    idx = base_idx + j * x_block_size
+
+                    if mi.is_monochromatic:
+                        if mi.is_polarized:
                             for i in range(4):
                                 sensor_values = dr.gather(mi.Float, L[i, 0, 0], idx)
-                                result[j, i] = dr.sum(sensor_values)
-                    else:
-                        for j in range(sensor_count):
-                            start = j * sub_film_size * spp
-                            idx = dr.arange(mi.UInt32, sub_film_size * spp)
-                            idx = dr.tile(idx, sub_film_size)
-                            idx += start
-                            idx += x_idx * skip
+                                result[j, i, 0] = dr.sum(sensor_values)
+                        else:
                             sensor_values = dr.gather(mi.Float, L[0], idx)
-                            result[j, 0] = dr.sum(sensor_values)
-                elif mi.is_spectral:
-                    if mi.is_polarized:
-                        for i in range(4):
+                            result[j, 0, 0] = dr.sum(sensor_values)
+                    elif mi.is_spectral:
+                        if mi.is_polarized:
+                            for i in range(4):
+                                for k in range(n_wavelengths):
+                                    sensor_values = dr.gather(mi.Float, L[k, 0, i], idx) # TODO: Investigate, this seems transposed from what it should be
+                                    result[j, i, k] = dr.sum(sensor_values)
+                        else:
                             for k in range(n_wavelengths):
-                                spectrum[0][i][0][k] = dr.sum(L[0][i][0][k]) # TODO: test
+                                sensor_values = dr.gather(mi.Float, L[k], idx)
+                                result[j, 0, k] = dr.sum(sensor_values)
                     else:
-                        for k in range(n_wavelengths):
-                            spectrum[k] = dr.sum(L[k])
-                else:
-                    # Never use render_1() in RGB mode
-                    pass
+                        # Never use render_1() in RGB mode
+                        pass
 
                 # Normalize
                 nf = dr.rcp(sub_film_size * sub_film_size * spp)
