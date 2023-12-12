@@ -32,21 +32,13 @@ template <typename Float, typename Spectrum>
 class PowerLawSizeDistr final : public SizeDistribution<Float, Spectrum> {
 public:
     MI_IMPORT_BASE(SizeDistribution, m_min_radius, m_max_radius, 
-                    m_normalization, calculate_constants)
+                    m_normalization, compute_constant)
     MI_IMPORT_TYPES()
 
     PowerLawSizeDistr(const Properties &props) : Base(props) {
-        ScalarFloat min_radius = props.get<ScalarFloat>("min_radius", 500.f);
-        ScalarFloat max_radius = props.get<ScalarFloat>("max_radius", 5000.f);
-        
-        // exponent = 3 is used in [Mishchenko and Yang 2018]
-        ScalarFloat exponent = props.get<ScalarFloat>("exponent", 3.f);
+        m_exponent = props.get<ScalarFloat>("exponent", 3.f);
 
-        m_min_radius = min_radius;
-        m_max_radius = max_radius;
-        m_exponent = exponent;
-
-        calculate_constants();
+        compute_constant();
     }
 
     Float eval(Float r, bool normalize) const override {
@@ -59,8 +51,6 @@ public:
     }
 
     void traverse(TraversalCallback *callback) override {
-        callback->put_parameter("min_radius", m_min_radius, +ParamFlags::Differentiable);
-        callback->put_parameter("max_radius", m_max_radius, +ParamFlags::Differentiable);
         callback->put_parameter("exponent", m_exponent, +ParamFlags::Differentiable);
     }
 

@@ -27,10 +27,9 @@ public:
     virtual Float eval(Float r, bool normalize = true) const = 0;
 
     /**
-     * \brief Calculate normalization constant, average geometric cross section,
-     *        effective radius, and effective variance.
+     * \brief Calculate normalization constant
      */
-    void calculate_constants();
+    void compute_constant();
     
     /**
      * \brief Evaluate radius, Gaussian quadrature weight,
@@ -48,24 +47,49 @@ public:
         if (i > m_g)
             Throw("Index %d out of range", i);
 
-        Float shift = 0.5f * (m_max_radius + m_min_radius);
-        Float scale = 0.5f * (m_max_radius - m_min_radius);
-
-        Float radius = Float(m_gauss_nodes[i]) * scale + shift;
-        Float weight = Float(m_gauss_weights[i]) * scale;
+        Float radius = Float(m_gauss_nodes[i]);
+        Float weight = Float(m_gauss_weights[i]);
         Float sdf    = eval(radius);
 
         return { radius, weight, sdf };
+    }
+
+    /**
+     * \brief Return all radii, Gaussian quadrature weights,
+     *        and sdf values as arrays
+     *
+     * \return  A tuple (radius, weight, sdf) consisting of
+     *
+     *     radius      Radius of all division points
+     *
+     *     weight      Weight of all division points
+     * 
+     *     sdf         Value of sdf(radius)
+     */
+    std::tuple<Float, Float, Float> eval_gauss_all() const {
+        Float radius_ = 0.f, weight_ = 0.f, sdf_ = 0.f;
+
+        if constexpr (dr::is_jit_v<Float>) {
+            Float radius = dr::load<Float>(m_gauss_nodes.data(), m_gauss_nodes.size());
+            Float weight = dr::load<Float>(m_gauss_weights.data(), m_gauss_weights.size());
+            Float sdf    = eval(radius);
+
+            return { radius, weight, sdf };
+        } else {
+            Log(Error, "eval_gauss_all() can only be used with JIT Mitsuba variants!");
+        }
+
+        return { radius_, weight_, sdf_ };
     }
     
     /// Returns whether this size distribution is monodisperse
     MI_INLINE bool is_monodisperse() const { return m_is_monodisperse; }
 
     /// Return the minimum radius
-    Float min_radius() const { return m_min_radius; }
+    ScalarFloat min_radius() const { return m_min_radius; }
 
     /// Return the maximum radius
-    Float max_radius() const { return m_max_radius; }
+    ScalarFloat max_radius() const { return m_max_radius; }
 
     /// Return the number of Gaussian quadrature division points
     ScalarInt32 n_gauss() const { return m_g; }
@@ -79,8 +103,8 @@ public:
     /// Return a human-readable representation of the size distribution
     std::string to_string() const override = 0;
 
-    void parameters_changed(const std::vector<std::string> &keys = {}) override {
-        calculate_constants();
+    void parameters_changed(const std::vector<std::string> & /* keys = {} */) override {
+        compute_constant();
     }
 
     //! @}
@@ -95,20 +119,16 @@ protected:
     bool m_is_monodisperse = false;
 
     /// Normalization factor (inverse of integral)
-    double m_normalization;
+    ScalarFloat m_normalization;
 
     /// Minimum and maximum radius
-    Float m_min_radius;
-    Float m_max_radius;
-
-    /// Effective radius and variance
-    Float m_reff;
-    Float m_veff;
+    ScalarFloat m_min_radius;
+    ScalarFloat m_max_radius;
 
     /// Number of Gaussian quadrature points
     uint32_t m_g;
 
-    /// Gaussian quadrature division nodes and weights
+    /// Gaussian quadrature division nodes and weights (already scaled and shifted)
     FloatX m_gauss_nodes;
     FloatX m_gauss_weights;
 

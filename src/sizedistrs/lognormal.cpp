@@ -38,24 +38,17 @@ template <typename Float, typename Spectrum>
 class LogNormalSizeDistr final : public SizeDistribution<Float, Spectrum> {
 public:
     MI_IMPORT_BASE(SizeDistribution, m_min_radius, m_max_radius, 
-                    m_normalization, calculate_constants)
+                    m_normalization, compute_constant)
     MI_IMPORT_TYPES()
 
     LogNormalSizeDistr(const Properties &props) : Base(props) {
-        ScalarFloat min_radius = props.get<ScalarFloat>("min_radius", 500.f);
-        ScalarFloat max_radius = props.get<ScalarFloat>("max_radius", 5000.f);
-        ScalarFloat mean_radius = props.get<ScalarFloat>("mean_radius", 1000.f);
-        ScalarFloat std = props.get<ScalarFloat>("std", 100.f);
-
-        m_min_radius = min_radius;
-        m_max_radius = max_radius;
-        m_mean_radius = mean_radius;
-        m_std = std;
+        m_mean_radius = props.get<ScalarFloat>("mean_radius", 1000.f);
+        m_std = props.get<ScalarFloat>("std", 100.f);
 
         Float ln_std = dr::log(m_std);
         m_std_constant = dr::rcp(2.f * dr::sqr(ln_std));
         
-        calculate_constants();
+        compute_constant();
     }
 
     Float eval(Float r, bool normalize) const override {
@@ -69,10 +62,13 @@ public:
     }
 
     void traverse(TraversalCallback *callback) override {
-        callback->put_parameter("min_radius", m_min_radius, +ParamFlags::Differentiable);
-        callback->put_parameter("max_radius", m_max_radius, +ParamFlags::Differentiable);
         callback->put_parameter("mean_radius", m_mean_radius, +ParamFlags::Differentiable);
         callback->put_parameter("std", m_std, +ParamFlags::Differentiable);
+    }
+
+    void parameters_changed(const std::vector<std::string> & /* keys = {} */) override {
+        Float ln_std = dr::log(m_std);
+        m_std_constant = dr::rcp(2.f * dr::sqr(ln_std));
     }
 
     std::string to_string() const override {
