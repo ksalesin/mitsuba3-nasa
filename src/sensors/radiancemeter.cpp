@@ -95,8 +95,8 @@ public:
     }
 
     std::pair<Ray3f, Spectrum> sample_ray(Float time, Float wavelength_sample,
-                                          const Point2f & /*position_sample*/,
-                                          const Point2f & /*aperture_sample*/,
+                                          const Point2f &position_sample,
+                                          const Point2f &aperture_sample,
                                           Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointSampleRay, active);
         Ray3f ray;
@@ -126,31 +126,43 @@ public:
 
     std::pair<RayDifferential3f, Spectrum>
     sample_ray_differential(Float time, Float wavelength_sample,
-                            const Point2f & /*position_sample*/,
-                            const Point2f & /*aperture_sample*/,
+                            const Point2f &position_sample,
+                            const Point2f &aperture_sample,
                             Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointSampleRay, active);
+
         RayDifferential3f ray;
         ray.time = time;
 
         // 1. Sample spectrum
         Spectrum wav_weight;
-        if (m_wavelength == -1.f) {
-            auto [wavelengths, weight] =
-                sample_wavelengths(dr::zeros<SurfaceInteraction3f>(),
-                                   wavelength_sample,
-                                   active);
-            ray.wavelengths = wavelengths;
-            wav_weight = weight;
-        } else {
-            ray.wavelengths = Float(m_wavelength);
-            wav_weight = 1.f;
-        }
+        // if (m_wavelength == -1.f) {
+        //     auto [wavelengths, weight] =
+        //         sample_wavelengths(dr::zeros<SurfaceInteraction3f>(),
+        //                            wavelength_sample,
+        //                            active);
+        //     ray.wavelengths = wavelengths;
+        //     wav_weight = weight;
+        // } else {
+        //     ray.wavelengths = Float(m_wavelength);
+        //     wav_weight = 1.f;
+        // }
+        // auto [wavelengths, weight] =
+        //     sample_wavelengths(dr::zeros<SurfaceInteraction3f>(),
+        //                        wavelength_sample,
+        //                        active);
+
+        ray.wavelengths = Float(m_wavelength);
+        wav_weight = 1.f;
 
         // 2. Set ray origin and direction
         ray.o = m_to_world.value().transform_affine(Point3f(0.f, 0.f, 0.f));
         ray.d = m_to_world.value().transform_affine(Vector3f(0.f, 0.f, 1.f));
         ray.o += ray.d * math::RayEpsilon<Float>;
+
+        // If this isn't set, drjit complains about
+        // 'uninitialized function argument while recording a virtual function call!'
+        ray.o_x = ray.o_y = ray.d_x = ray.d_y = 0.f;
 
         // 3. Set differentials; since the film size is always 1x1, we don't
         //    have differentials

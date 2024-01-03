@@ -173,7 +173,7 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
                 tr, free_flight_pdf = medium.transmittance_eval_pdf(mei, si, active_medium)
                 tr_pdf = index_spectrum(free_flight_pdf, channel)
                 weight = mi.Spectrum(1.0)
-                weight[active_medium] = weight @ mi.Spectrum(dr.select(tr_pdf > 0.0, tr / dr.detach(tr_pdf), 0.0))
+                weight[active_medium] = weight * dr.select(tr_pdf > 0.0, tr / dr.detach(tr_pdf), 0.0)
 
                 escaped_medium = active_medium & ~mei.is_valid()
                 active_medium &= mei.is_valid()
@@ -200,7 +200,15 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
                     ray.o[act_null_scatter] = dr.detach(mei.p)
                     si.t[act_null_scatter] = si.t - dr.detach(mei.t)
 
-                weight[act_medium_scatter] = weight @ mi.Spectrum(mei.sigma_s / dr.detach(scatter_prob))
+                if mi.is_spectral: # TODO: Fix errors about matmul and not being able to cast shapes / operands
+                    sigma_tmp = mei.sigma_s / dr.detach(scatter_prob)
+                    I_ = mi.Spectrum(1.0)
+                    for i in range(4):
+                        I_[i, i] = sigma_tmp
+                    # weight[act_medium_scatter] = weight * (mei.sigma_s / dr.detach(scatter_prob))
+                    weight[act_medium_scatter] = weight @ I_
+                else:
+                    weight[act_medium_scatter] = weight @ mi.Spectrum(mei.sigma_s / dr.detach(scatter_prob))
                 throughput[active_medium] = throughput @ mi.Spectrum(dr.detach(weight))
 
                 mei = dr.detach(mei)
@@ -441,7 +449,8 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
             active_medium &= mei.is_valid()
             ray.o[active_medium] = dr.detach(mei.p)
             si.t[active_medium] = dr.detach(si.t - mei.t)
-            tr_multiplier[active_medium] = tr_multiplier @ mi.Spectrum(mei.sigma_n / mei.combined_extinction)
+             # TODO: Fix errors about matmul and not being able to cast shapes / operands
+            tr_multiplier[active_medium] = tr_multiplier @ mi.Spectrum(mei.sigma_n @ dr.rcp(mei.combined_extinction))
 
             # Handle interactions with surfaces
             active_surface |= escaped_medium

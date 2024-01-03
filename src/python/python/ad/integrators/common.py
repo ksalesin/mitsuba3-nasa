@@ -1,5 +1,6 @@
 from __future__ import annotations as __annotations__ # Delayed parsing of type annotations
 
+import numpy as np
 import mitsuba as mi
 import drjit as dr
 import gc
@@ -198,6 +199,113 @@ class ADIntegrator(mi.CppADIntegrator):
             gc.collect()
 
             return self.primal_spectrum
+
+    def render_test(self: mi.SamplingIntegrator,
+                 scene: mi.Scene,
+                 sensor: Union[int, mi.Sensor] = 0,
+                 seed: int = 0,
+                 spp: int = 0,
+                 develop: bool = True,
+                 evaluate: bool = True,
+                 thread_count: int = 0) -> mi.TensorXf:
+        """ Analogous to above render(), but accumulates all pixels 
+           and returns a single Spectrum value. """
+
+        if thread_count != 0:
+            mi.Thread.set_thread_count(thread_count)
+
+        if isinstance(sensor, int):
+            sensor = scene.sensors()[sensor]
+
+        film = sensor.film()
+        film_size = film.crop_size()
+
+        sub_film_size = film_size.y
+        sensor_count = film_size.x // sub_film_size
+
+        if (sub_film_size * sensor_count) != film_size.x:
+            raise Exception("render_test: the horizontal resolution (currently %i)"
+                            " must be divisible by the number of child sensors (%i)!"
+                            % (film_size.x, sensor_count))
+
+        # Disable derivatives in all of the following
+        with dr.suspend_grad():
+            # Prepare the film and sample generator for rendering
+            sampler, spp = self.prepare(
+                sensor=sensor,
+                seed=seed,
+                spp=spp,
+                aovs=self.aov_names()
+            )
+
+            # Generate a set of rays starting at the sensor
+            ray, weight, pos, _ = self.sample_rays(scene, sensor, sampler)
+
+            # Launch the Monte Carlo sampling process in primal mode
+            L, valid, state = self.sample(
+                mode=dr.ADMode.Primal,
+                scene=scene,
+                sampler=sampler,
+                ray=ray,
+                depth=mi.UInt32(0),
+                δL=None,
+                state_in=None,
+                reparam=None,
+                active=mi.Bool(True)
+            )
+
+            # Rotate Stokes reference frames if polarized
+            if mi.is_polarized:
+                L = self.to_sensor_mueller(sensor, ray, L)
+
+            n_wavelengths = len(ray.wavelengths)
+            n_stokes = 4 if mi.is_polarized else 1
+
+            result = dr.zeros(mi.TensorXf, shape=(sensor_count, n_stokes, n_wavelengths))
+
+            # Compute sample positions for each sensor
+            x_block_size = sub_film_size * spp
+            x_ = dr.arange(mi.UInt32, x_block_size)
+            y_ = dr.arange(mi.UInt32, sub_film_size)
+            x, y = dr.meshgrid(x_, y_)
+
+            skip = sensor_count * x_block_size
+            base_idx = x + y * skip
+
+            for j in range(sensor_count):
+                idx = base_idx + j * x_block_size
+
+                if mi.is_monochromatic:
+                    if mi.is_polarized:
+                        for i in range(4):
+                            sensor_values = dr.gather(mi.Float, L[i, 0, 0], idx)
+                            result[j, i, 0] = dr.sum(sensor_values)
+                    else:
+                        sensor_values = dr.gather(mi.Float, L[0], idx)
+                        result[j, 0, 0] = dr.sum(sensor_values)
+                elif mi.is_spectral:
+                    if mi.is_polarized:
+                        for i in range(4):
+                            for k in range(n_wavelengths):
+                                sensor_values = dr.gather(mi.Float, L[k, 0, i], idx) # TODO: Investigate, this seems transposed from what it should be
+                                result[j, i, k] = dr.sum(sensor_values)
+                    else:
+                        for k in range(n_wavelengths):
+                            sensor_values = dr.gather(mi.Float, L[k], idx)
+                            result[j, 0, k] = dr.sum(sensor_values)
+                else:
+                    # Never use render_1() in RGB mode
+                    pass
+
+            # Normalize
+            nf = dr.rcp(sub_film_size * sub_film_size * spp)
+            result *= nf
+
+            # Explicitly delete any remaining unused variables
+            del sampler, ray, weight, pos, L, valid
+            gc.collect()
+
+            return result
 
     def to_sensor_mueller(self: mi.SamplingIntegrator, 
                           sensor: mi.Sensor, 
@@ -1210,6 +1318,165 @@ class RBIntegrator(ADIntegrator):
             # Run kernel representing side effects of the above
             dr.eval()
 
+    def render_test_backward(self: mi.SamplingIntegrator,
+                             scene: mi.Scene,
+                             params: Any,
+                             grad_in: mi.TensorXf,
+                             sensor: Union[int, mi.Sensor] = 0,
+                             seed: int = 0,
+                             spp: int = 0) -> None:
+        """ Analogous to above render_backward() but for render_1() """
+
+        if isinstance(sensor, int):
+            sensor = scene.sensors()[sensor]
+
+        film = sensor.film()
+        film_size = film.crop_size()
+
+        sub_film_size = film_size.y
+        sensor_count = film_size.x // sub_film_size
+
+        if (sub_film_size * sensor_count) != film_size.x:
+            raise Exception("render_test: the horizontal resolution (currently %i)"
+                            " must be divisible by the number of child sensors (%i)!"
+                            % (film_size.x, sensor_count))
+
+        aovs = self.aov_names()
+
+        # Disable derivatives in all of the following
+        with dr.suspend_grad():
+            # Prepare the film and sample generator for rendering
+            sampler, spp = self.prepare(sensor, seed, spp, aovs)
+
+            # When the underlying integrator supports reparameterizations,
+            # perform necessary initialization steps and wrap the result using
+            # the _ReparamWrapper abstraction defined above
+            if hasattr(self, 'reparam'):
+                reparam = _ReparamWrapper(
+                    scene=scene,
+                    params=params,
+                    reparam=self.reparam,
+                    wavefront_size=sampler.wavefront_size(),
+                    seed=seed
+                )
+            else:
+                reparam = None
+
+            # Generate a set of rays starting at the sensor, keep track of
+            # derivatives wrt. sample positions ('pos') if there are any
+            ray, weight, pos, det = self.sample_rays(scene, sensor,
+                                                     sampler, reparam)
+
+            # Launch the Monte Carlo sampling process in primal mode (1)
+            L, valid, state_out = self.sample(
+                mode=dr.ADMode.Primal,
+                scene=scene,
+                sampler=sampler.clone(),
+                ray=ray,
+                depth=mi.UInt32(0),
+                δL=None,
+                state_in=None,
+                reparam=None,
+                active=mi.Bool(True)
+            )
+
+            # Should this be here or outside resume_grad block? 
+            # Rotate Stokes reference frames if polarized
+            if mi.is_polarized:
+                L = self.to_sensor_mueller(sensor, ray, L)
+
+            n_wavelengths = len(ray.wavelengths)
+            n_stokes = 4 if mi.is_polarized else 1
+
+            # Accumulate and normalize final spectrum
+            result = dr.zeros(mi.TensorXf, shape=(sensor_count, n_stokes, n_wavelengths))
+
+            with dr.resume_grad():
+                dr.enable_grad(L)
+
+                # Accumulate into the image block.
+                # After reparameterizing the camera ray, we need to evaluate
+                #   Σ (fi Li det)
+                #  ---------------
+                #   Σ (fi det)
+                # L *= weight * det # <-- this results in backward_from() exception
+
+                # Compute sample positions for each sensor
+                x_block_size = sub_film_size * spp
+                x_ = dr.arange(mi.UInt32, x_block_size)
+                y_ = dr.arange(mi.UInt32, sub_film_size)
+                x, y = dr.meshgrid(x_, y_)
+
+                skip = sensor_count * x_block_size
+                base_idx = x + y * skip
+
+                for j in range(sensor_count):
+                    idx = base_idx + j * x_block_size
+
+                    if mi.is_monochromatic:
+                        if mi.is_polarized:
+                            for i in range(4):
+                                sensor_values = dr.gather(mi.Float, L[i, 0, 0], idx)
+                                result[j, i, 0] = dr.sum(sensor_values)
+                        else:
+                            sensor_values = dr.gather(mi.Float, L[0], idx)
+                            result[j, 0, 0] = dr.sum(sensor_values)
+                    elif mi.is_spectral:
+                        if mi.is_polarized:
+                            for i in range(4):
+                                for k in range(n_wavelengths):
+                                    sensor_values = dr.gather(mi.Float, L[k, 0, i], idx) # TODO: Investigate, this seems transposed from what it should be
+                                    result[j, i, k] = dr.sum(sensor_values)
+                        else:
+                            for k in range(n_wavelengths):
+                                sensor_values = dr.gather(mi.Float, L[k], idx)
+                                result[j, 0, k] = dr.sum(sensor_values)
+                    else:
+                        # Never use render_1() in RGB mode
+                        pass
+
+                # Normalize
+                nf = dr.rcp(sub_film_size * sub_film_size * spp)
+                result *= nf
+
+                # Probably a little overkill, but why not.. If there are any
+                # DrJit arrays to be collected by Python's cyclic GC, then
+                # freeing them may enable loop simplifications in dr.eval().
+                del valid
+                gc.collect()
+
+                # This step launches a kernel
+                dr.schedule(state_out, result)
+
+                # Differentiate sample splatting and weight division steps to
+                # retrieve the adjoint radiance
+                dr.set_grad(result, grad_in)
+                dr.enqueue(dr.ADMode.Backward, result)
+                dr.traverse(mi.Float, dr.ADMode.Backward)
+                δL = dr.grad(L)
+
+            # Launch Monte Carlo sampling in backward AD mode (2)
+            L_2, valid_2, state_out_2 = self.sample(
+                mode=dr.ADMode.Backward,
+                scene=scene,
+                sampler=sampler,
+                ray=ray,
+                depth=mi.UInt32(0),
+                δL=δL,
+                state_in=state_out,
+                reparam=reparam,
+                active=mi.Bool(True)
+            )
+
+            # We don't need any of the outputs here
+            del L_2, valid_2, state_out, state_out_2, δL, \
+                ray, weight, pos, sampler
+
+            gc.collect()
+
+            # Run kernel representing side effects of the above
+            dr.eval()
+
 # ---------------------------------------------------------------------------
 # Default implementation of Integrator.render_forward/backward
 # ---------------------------------------------------------------------------
@@ -1238,10 +1505,36 @@ def render_1_backward(self: mi.Integrator,
         # dr.backward_from(spectrum @ grad_in)
         dr.backward_from(dr.dot(dr.ravel(spectrum), dr.ravel(grad_in)))
 
+def render_test_backward(self: mi.Integrator,
+                      scene: mi.Scene,
+                      params: Any,
+                      grad_in: mi.TensorXf,
+                      sensor: Union[int, mi.Sensor] = 0,
+                      seed: int = 0,
+                      spp: int = 0) -> None:
+    """ Analogous to above render_backward() but for render_1(). """
+
+    # Recorded loops cannot be differentiated, so let's disable them
+    with dr.scoped_set_flag(dr.JitFlag.LoopRecord, False):
+        spectrum = self.render_test(
+            scene=scene,
+            sensor=sensor,
+            seed=seed,
+            spp=spp,
+            develop=False,
+            evaluate=False
+        )
+
+        # Process the computation graph using reverse-mode AD
+        # dr.backward_from(spectrum @ grad_in)
+        dr.backward_from(dr.dot(dr.ravel(spectrum), dr.ravel(grad_in)))
+
 # Monkey-patch render_forward/backward into the Integrator base class
 mi.Integrator.render_1_backward = render_1_backward
+mi.Integrator.render_test_backward = render_test_backward
 
 del render_1_backward
+del render_test_backward
 
 # ------------------------------------------------------------------------------
 

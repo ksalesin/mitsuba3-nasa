@@ -172,6 +172,7 @@ public:
 
         Point2f position_sample_2(idx_f - Float(idx_u), position_sample.y());
 
+        // Log(Warn, "position_sample_2: ", position_sample_2);
         auto [ray, spec] = sensor->sample_ray_differential(
             time, wavelength_sample, position_sample_2, aperture_sample,
             active);
