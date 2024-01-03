@@ -65,7 +65,7 @@ template <typename Float, typename Spectrum>
 class BlendPhaseFunction final : public PhaseFunction<Float, Spectrum> {
 public:
     MI_IMPORT_BASE(PhaseFunction, m_flags, m_components)
-    MI_IMPORT_TYPES(PhaseFunctionContext, Volume)
+    MI_IMPORT_TYPES(PhaseFunctionContext, PhaseFunctionPtr, Volume)
 
     BlendPhaseFunction(const Properties &props) : Base(props) {
         int phase_index = 0;
@@ -73,31 +73,43 @@ public:
         for (auto &[name, obj] : props.objects(false)) {
             auto *phase = dynamic_cast<Base *>(obj.get());
             if (phase) {
-                if (phase_index == 2)
-                    Throw("BlendPhase: Cannot specify more than two child "
-                          "phase functions");
-                m_nested_phase[phase_index++] = phase;
+                m_nested_phase.push_back(phase);
                 props.mark_queried(name);
+                phase_index++;
             }
         }
 
-        m_weight = props.volume<Volume>("weight");
-        if (phase_index != 2)
-            Throw("BlendPhase: Two child phase functions must be specified!");
+        if (phase_index < 2)
+            Throw("BlendPhase: At least two child phase functions must be specified!");
+
+        for (size_t i = 0; i < phase_index - 1; ++i) {
+            m_weight.push_back(props.volume<Volume>("weight_" + std::to_string(i)));
+        }
 
         m_components.clear();
-        for (size_t i = 0; i < 2; ++i)
+        for (size_t i = 0; i < phase_index; ++i)
             for (size_t j = 0; j < m_nested_phase[i]->component_count(); ++j)
                 m_components.push_back(m_nested_phase[i]->flags(j));
 
-        m_flags = m_nested_phase[0]->flags() | m_nested_phase[1]->flags();
+        m_flags = 0;
+        for (size_t i = 0; i < phase_index; ++i)
+            m_flags |= m_nested_phase[i]->flags();
+        
         dr::set_attr(this, "flags", m_flags);
+
+        m_phase_dr = dr::load<DynamicBuffer<PhaseFunctionPtr>>(m_nested_phase.data(),
+                                                               m_nested_phase.size());
     }
 
     void traverse(TraversalCallback *callback) override {
-        callback->put_object("weight",  m_weight.get(),          +ParamFlags::Differentiable);
-        callback->put_object("phase_0", m_nested_phase[0].get(), +ParamFlags::Differentiable);
-        callback->put_object("phase_1", m_nested_phase[1].get(), +ParamFlags::Differentiable);
+        for (size_t i = 0; i < m_nested_phase.size() - 1; ++i) {
+            callback->put_object("weight_" + std::to_string(i), m_weight[i].get(), 
+                                 +ParamFlags::Differentiable);
+        }
+        for (size_t i = 0; i < m_nested_phase.size(); ++i) {
+            callback->put_object("phase_" + std::to_string(i), m_nested_phase[i].get(), 
+                                 +ParamFlags::Differentiable);
+        }
     }
 
     std::tuple<Vector3f, Spectrum, Float> sample(const PhaseFunctionContext &ctx,
@@ -106,51 +118,68 @@ public:
                                                  Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionSample, active);
 
-        Float weight = eval_weight(mi, active);
+        Float weight_sum = 0.f;
+        std::vector<Float> weight;
+        std::vector<Float> cdf;
+
+        for (size_t i = 0; i < m_nested_phase.size() - 1; ++i) {
+            Float w_i = eval_weight(mi, i, active);
+            weight.push_back(w_i);
+
+            weight_sum += w_i;
+            cdf.push_back(weight_sum);
+        }
+
+        // Infer the weight of the last phase function
+        weight.push_back((Float) 1.f - weight_sum);
+        cdf.push_back((Float) 1.f);
+
         if (unlikely(ctx.component != (uint32_t) -1)) {
-            bool sample_first =
-                ctx.component < m_nested_phase[0]->component_count();
             PhaseFunctionContext ctx2(ctx);
-            if (!sample_first)
-                ctx2.component -=
-                    (uint32_t) m_nested_phase[0]->component_count();
-            else
-                weight = 1.f - weight;
-            auto [wo, w, pdf] = m_nested_phase[sample_first ? 0 : 1]->sample(
+            uint32_t component_sum = 0, index = 0;
+
+            for (size_t i = 0; i < m_nested_phase.size(); ++i) {
+                uint32_t new_sum = component_sum + m_nested_phase[i]->component_count();
+                if (ctx.component < new_sum) {
+                    index = i;
+                    break;
+                }
+                component_sum = new_sum;
+            }
+
+            ctx2.component = ctx.component - component_sum;
+
+            auto [wo, w, pdf] = m_nested_phase[index]->sample(
                 ctx2, mi, sample1, sample2, active);
-            pdf *= weight;
-            return { wo, w * weight, pdf };
+
+            w *= weight[index];
+            pdf *= weight[index];
+            
+            return { wo, w, pdf };
         }
 
-        Vector3f wo = dr::zeros<Vector3f>();
-        Spectrum w = dr::zeros<Spectrum>();
-        Float pdf = dr::zeros<Float>();
+        UInt32 idx_u = dr::zeros<UInt32>();
+        Float sample1_adjusted = dr::zeros<Float>();
+        Float last_cdf = dr::zeros<Float>();
 
-        Mask m0 = active && sample1 > weight,
-             m1 = active && sample1 <= weight;
-
-        if (dr::any_or<true>(m0)) {
-            auto [wo0, w0, pdf0] = m_nested_phase[0]->sample(
-                ctx, mi, (sample1 - weight) / (1 - weight), sample2, m0);
-            dr::masked(wo, m0)  = wo0;
-            dr::masked(w, m0)   = w0;
-            dr::masked(pdf, m0) = pdf0;
+        for (size_t i = 0; i < m_nested_phase.size(); ++i) {
+            auto sample_i = sample1 > last_cdf && sample1 < cdf[i];
+            dr::masked(idx_u, sample_i) = i;
+            dr::masked(sample1_adjusted, sample_i) = (sample1 - last_cdf) / (cdf[i] - last_cdf);
+            last_cdf = cdf[i];
         }
 
-        if (dr::any_or<true>(m1)) {
-            auto [wo1, w1, pdf1] = m_nested_phase[1]->sample(
-                ctx, mi, sample1 / weight, sample2, m1);
-            dr::masked(wo, m1)  = wo1;
-            dr::masked(w, m1)   = w1;
-            dr::masked(pdf, m1) = pdf1;
-        }
+        PhaseFunctionPtr phase = dr::gather<PhaseFunctionPtr>(m_phase_dr, idx_u, active);
+
+        auto [wo, w, pdf] = phase->sample(ctx, mi, sample1_adjusted, sample2, active);
 
         return { wo, w, pdf };
     }
 
     MI_INLINE Float eval_weight(const MediumInteraction3f &mi,
+                                const uint32_t index,
                                 const Mask &active) const {
-        return dr::clamp(m_weight->eval_1(mi, active), 0.f, 1.f);
+        return dr::clamp(m_weight[index]->eval_1(mi, active), 0.f, 1.f);
     }
 
     std::pair<Spectrum, Float> eval_pdf(const PhaseFunctionContext &ctx,
@@ -159,28 +188,52 @@ public:
                                         Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionEvaluate, active);
 
-        Float weight = eval_weight(mi, active);
+        Float weight_sum = 0.f;
+        std::vector<Float> weight;
+
+        for (size_t i = 0; i < m_nested_phase.size() - 1; ++i) {
+            Float w_i = eval_weight(mi, i, active);
+            weight.push_back(w_i);
+
+            weight_sum += w_i;
+        }
+
+        // Infer the weight of the last phase function
+        weight.push_back((Float) 1.f - weight_sum);
 
         if (unlikely(ctx.component != (uint32_t) -1)) {
-            bool sample_first =
-                ctx.component < m_nested_phase[0]->component_count();
             PhaseFunctionContext ctx2(ctx);
-            if (!sample_first)
-                ctx2.component -=
-                    (uint32_t) m_nested_phase[0]->component_count();
-            else
-                weight = 1.f - weight;
-             auto [val, pdf] = m_nested_phase[sample_first ? 0 : 1]->eval_pdf(ctx2, mi, wo, active);
+            uint32_t component_sum = 0, index;
 
-             return { weight * val, weight * pdf };
+            for (size_t i = 0; i < m_nested_phase.size(); ++i) {
+                uint32_t new_sum = component_sum + m_nested_phase[i]->component_count();
+                if (ctx.component < new_sum) {
+                    index = i;
+                    break;
+                }
+                component_sum = new_sum;
+            }
+
+            ctx2.component = ctx.component - component_sum;
+
+            auto [val, pdf] = m_nested_phase[index]->eval_pdf(ctx2, mi, wo, active);
+
+            val *= weight[index];
+            pdf *= weight[index];
+
+             return { val, pdf };
         } else {
-            auto [val_0, pdf_0] = m_nested_phase[0]->eval_pdf(ctx, mi, wo, active);
-            auto [val_1, pdf_1] = m_nested_phase[1]->eval_pdf(ctx, mi, wo, active);
+            Spectrum val = 0.f;
+            Float pdf = 0.f;
 
-            return {
-                dr::lerp(val_0, val_1, weight),
-                dr::lerp(pdf_0, pdf_1, weight)
-            };
+            for (size_t i = 0; i < m_nested_phase.size(); ++i) {
+                auto [val_i, pdf_i] = m_nested_phase[i]->eval_pdf(ctx, mi, wo, active);
+
+                val += val_i * weight[i];
+                pdf += pdf_i * weight[i];
+            }
+            
+            return { val, pdf };
         }
     }
     
@@ -188,18 +241,15 @@ public:
         std::ostringstream oss;
         oss << "BlendPhase[" << std::endl
             << "  weight = " << string::indent(m_weight) << "," << std::endl
-            << "  nested_phase[0] = " << string::indent(m_nested_phase[0])
-            << "," << std::endl
-            << "  nested_phase[1] = " << string::indent(m_nested_phase[1])
-            << std::endl
             << "]";
         return oss.str();
     }
 
     MI_DECLARE_CLASS()
 protected:
-    ref<Volume> m_weight;
-    ref<Base> m_nested_phase[2];
+    std::vector<ref<Volume>> m_weight;
+    std::vector<ref<Base>> m_nested_phase;
+    DynamicBuffer<PhaseFunctionPtr> m_phase_dr;
 };
 
 MI_IMPLEMENT_CLASS_VARIANT(BlendPhaseFunction, PhaseFunction)

@@ -61,6 +61,7 @@ public:
     MI_IMPORT_TYPES(PhaseFunctionContext, SizeDistribution)
 
     using Complex2f = dr::Complex<Float>;
+    using FloatX = dr::DynamicArray<dr::scalar_t<Float>>;
 
     MiePhaseFunction(const Properties &props) : Base(props) {
         if constexpr(is_rgb_v<Spectrum>)
@@ -148,38 +149,63 @@ public:
             UnpolarizedSpectrum Cs_avg(0.f);
             Spectrum phase_r;
 
-            // Estimate integral over radius distribution by Gaussian quadrature
-            uint32_t g = m_size_distr->n_gauss();
-            uint32_t i = 0;
+            if constexpr (dr::is_jit_v<Float>) {
+                auto [radius, weight, sdf] = m_size_distr->eval_gauss_all();
 
-            dr::scoped_set_flag guard(JitFlag::LoopRecord, false);
-
-            dr::Loop<dr::mask_t<uint32_t>> loop_gauss("Integrate over distribution of sizes", 
-                                    /* loop state: */ i, Cs_avg, phase_r, phase_val);
-
-            while (loop_gauss(i < g)) {
-                auto [radius, weight, sdf] = m_size_distr->eval_gauss(i);
+                auto [radius_grid, mu_grid] = dr::meshgrid(radius, mu);
+                auto [weight_grid, unused]  = dr::meshgrid(weight, mu);
+                auto [sdf_grid, unused2]    = dr::meshgrid(sdf, mu);
+                uint32_t n_gauss = m_size_distr->n_gauss();
 
                 auto [s1, s2, ns, Cs, Ct] = mie<Float>(wavelengths_u, 
-                                                UnpolarizedSpectrum(mu), 
-                                                UnpolarizedSpectrum(radius), 
-                                                dr::Complex<UnpolarizedSpectrum>(m_ior_med), 
-                                                dr::Complex<UnpolarizedSpectrum>(m_ior_sph), 
-                                                m_nmax);
-   
+                                                       UnpolarizedSpectrum(mu_grid), 
+                                                       UnpolarizedSpectrum(radius_grid), 
+                                                       dr::Complex<UnpolarizedSpectrum>(m_ior_med), 
+                                                       dr::Complex<UnpolarizedSpectrum>(m_ior_sph), 
+                                                       m_nmax);
+
                 if constexpr (is_polarized_v<Spectrum>) {
                     phase_r = mueller::mie_scatter(s1, s2, ns);
                 } else {
                     phase_r = 0.5f * (dr::squared_norm(s1) + dr::squared_norm(s2)) * dr::rcp(ns);
                 }
 
-                Cs_avg += weight * sdf * Cs;
-                phase_val += weight * sdf * Cs * phase_r;
+                UnpolarizedSpectrum Cs_tmp = weight_grid * sdf_grid * Cs;
+                Spectrum phase_tmp = weight_grid * sdf_grid * Cs * phase_r;
 
-                dr::schedule(Cs_avg, phase_val);
-                dr::eval();
+                Cs_avg = dr::block_sum(Cs_tmp, n_gauss);
+                phase_val = dr::block_sum(phase_tmp, n_gauss);
+            } else {
+                // Estimate integral over radius distribution by Gaussian quadrature
+                uint32_t g = m_size_distr->n_gauss();
+                uint32_t i = 0;
 
-                i++;
+                dr::scoped_set_flag guard(JitFlag::LoopRecord, false);
+
+                dr::Loop<dr::mask_t<uint32_t>> loop_gauss("Integrate over distribution of sizes", 
+                                            /* loop state: */ i, Cs_avg, phase_r, phase_val);
+
+                while (loop_gauss(i < g)) {
+                    auto [radius, weight, sdf] = m_size_distr->eval_gauss(i);
+
+                    auto [s1, s2, ns, Cs, Ct] = mie<Float>(wavelengths_u, 
+                                                    UnpolarizedSpectrum(mu), 
+                                                    UnpolarizedSpectrum(radius), 
+                                                    dr::Complex<UnpolarizedSpectrum>(m_ior_med), 
+                                                    dr::Complex<UnpolarizedSpectrum>(m_ior_sph), 
+                                                    m_nmax);
+
+                    if constexpr (is_polarized_v<Spectrum>) {
+                        phase_r = mueller::mie_scatter(s1, s2, ns);
+                    } else {
+                        phase_r = 0.5f * (dr::squared_norm(s1) + dr::squared_norm(s2)) * dr::rcp(ns);
+                    }
+
+                    Cs_avg += weight * sdf * Cs;
+                    phase_val += weight * sdf * Cs * phase_r;
+
+                    i++;
+                }
             }
 
             phase_val /= Cs_avg;

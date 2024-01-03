@@ -91,7 +91,7 @@ mie(Value wavelengths, Value mu, Value radius, dr::Complex<Value> ior_med,
 
     int n_i = x_ndown - 1;
     Int n = n_i;
-    dr::Loop<Bool> loop_x("Calculate ratio j_n(z) / j_{n-1}(z) for z = x", 
+    dr::Loop<Bool> loop_x("Calculate ratio j_n(z) over j_{n-1}(z) for z = x", 
                           /* loop state: */ j_ratio_x_n, n);
 
     while (loop_x(n >= 1)) {
@@ -106,7 +106,7 @@ mie(Value wavelengths, Value mu, Value radius, dr::Complex<Value> ior_med,
 
     n_i = y_ndown - 1;
     n = n_i;
-    dr::Loop<Bool> loop_y("Calculate ratio j_n(z) / j_{n-1}(z) for z = y", 
+    dr::Loop<Bool> loop_y("Calculate ratio j_n(z) over j_{n-1}(z) for z = y", 
                           /* loop state: */ j_ratio_y_n, n);
 
     while (loop_y(n >= 1)) {
