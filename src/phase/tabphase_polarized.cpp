@@ -194,6 +194,8 @@ public:
 
             // If the cross product x_hat is too small, phase_val may be NaN
             dr::masked(phase_val, dr::isnan(phase_val)) = depolarizer<Spectrum>(0.f);
+        } else {
+            phase_val = Spectrum(m11);
         }
 
         Float pdf = m_m11.eval_pdf_normalized(cos_theta, active) 

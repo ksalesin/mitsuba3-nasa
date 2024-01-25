@@ -235,7 +235,14 @@ class PRBUnpolarizedIntegrator(RBIntegrator):
                                                                act_medium_scatter)
                     act_medium_scatter &= phase_pdf > 0.0
 
-                # TODO: Should we add the same derivative propagation block here as below the BSDF sampling step?
+                # Re evaluate the phase function value in an attached manner
+                phase_eval, _ = phase.eval_pdf(phase_ctx, mei, wo, act_medium_scatter)
+                if not is_primal and dr.grad_enabled(phase_eval):
+                    Lo = phase_eval * dr.detach(dr.select(act_medium_scatter, L / dr.maximum(1e-8, phase_eval), 0.0))
+                    if mode == dr.ADMode.Backward:
+                        dr.backward_from(δL * Lo)
+                    else:
+                        δL += dr.forward_to(Lo)
 
                 throughput[act_medium_scatter] = throughput * phase_weight
                 new_ray = mei.spawn_ray(mei.to_world(wo))

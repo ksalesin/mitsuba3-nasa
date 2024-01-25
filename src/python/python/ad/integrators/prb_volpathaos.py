@@ -257,17 +257,16 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
                     phase_weight = mei.to_world_mueller(phase_weight, -wo, mei.wi)
                     act_medium_scatter &= phase_pdf > 0.0
 
-                # TODO: Should we add the same derivative propagation block here as below the BSDF sampling step?
-                # phase_eval = phase.eval(phase_ctx, mei, wo, act_medium_scatter)
-                # phase_eval = mei.to_world_mueller(phase_eval, -wo, mei.wi)
+                phase_eval, _ = phase.eval_pdf(phase_ctx, mei, wo, act_medium_scatter)
+                phase_eval = mei.to_world_mueller(phase_eval, -wo, mei.wi)
 
-                # if not is_primal and dr.grad_enabled(phase_eval):
-                #     I = dr.replace_grad(mi.Spectrum(1.0), phase_eval)
-                #     Lo = I @ mi.Spectrum(dr.detach(dr.select(active, L, 0.0)))
-                #     if mode == dr.ADMode.Backward:
-                #         dr.backward_from(δL @ Lo)
-                #     else:
-                #         δL += dr.forward_to(Lo)
+                if not is_primal and dr.grad_enabled(phase_eval):
+                    I = dr.replace_grad(mi.Spectrum(1.0), phase_eval)
+                    Lo = I @ mi.Spectrum(dr.detach(dr.select(act_medium_scatter, L, 0.0)))
+                    if mode == dr.ADMode.Backward:
+                        dr.backward_from(δL @ Lo)
+                    else:
+                        δL += dr.forward_to(Lo)
 
                 throughput[act_medium_scatter] = throughput @ phase_weight
                 new_ray = mei.spawn_ray(mei.to_world(wo))
