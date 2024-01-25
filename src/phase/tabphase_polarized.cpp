@@ -101,13 +101,13 @@ public:
                 cost.data(), m11.data(), m11.size()
             );
             m_m12 = IrregularContinuousDistribution<Float>(
-                cost.data(), m12.data(), m12.size(), false, false
+                cost.data(), m12.data(), m12.size(), false
             );
             m_m33 = IrregularContinuousDistribution<Float>(
-                cost.data(), m33.data(), m33.size(), false, false
+                cost.data(), m33.data(), m33.size(), false
             );
             m_m34 = IrregularContinuousDistribution<Float>(
-                cost.data(), m34.data(), m34.size(), false, false
+                cost.data(), m34.data(), m34.size(), false
             );
         }
 

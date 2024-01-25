@@ -1,4 +1,3 @@
-
 #include <mitsuba/core/properties.h>
 #include <mitsuba/render/mesh.h>
 #include <mitsuba/render/emitter.h>
@@ -70,11 +69,15 @@ MI_VARIANT Shape<Float, Spectrum>::Shape(const Properties &props) : m_id(props.i
         m_bsdf = PluginManager::instance()->create_object<BSDF>(props2);
     }
 
+    m_silhouette_sampling_weight = props.get<ScalarFloat>("silhouette_sampling_weight", 1.0f);
+
     dr::set_attr(this, "emitter", m_emitter.get());
     dr::set_attr(this, "sensor", m_sensor.get());
     dr::set_attr(this, "bsdf", m_bsdf.get());
     dr::set_attr(this, "interior_medium", m_interior_medium.get());
     dr::set_attr(this, "exterior_medium", m_exterior_medium.get());
+    dr::set_attr(this, "silhouette_sampling_weight", m_silhouette_sampling_weight);
+    dr::set_attr(this, "shape_type", m_shape_type);
 }
 
 MI_VARIANT Shape<Float, Spectrum>::~Shape() {
@@ -82,18 +85,6 @@ MI_VARIANT Shape<Float, Spectrum>::~Shape() {
     if constexpr (dr::is_cuda_v<Float>)
         jit_free(m_optix_data_ptr);
 #endif
-}
-
-MI_VARIANT bool Shape<Float, Spectrum>::is_mesh() const {
-    return class_()->derives_from(Mesh<Float, Spectrum>::m_class);
-}
-
-MI_VARIANT bool Shape<Float, Spectrum>::is_bspline_curve() const {
-    return false;
-}
-
-MI_VARIANT bool Shape<Float, Spectrum>::is_linear_curve() const {
-    return false;
 }
 
 MI_VARIANT typename Shape<Float, Spectrum>::PositionSample3f
@@ -173,7 +164,7 @@ void embree_intersect_scalar(int* valid,
 
 template <typename Float, typename Spectrum, size_t N, typename RTCRay_, typename RTCHit_>
 static void embree_intersect_packet(int *valid, void *geometryUserPtr,
-                                    unsigned int geomID, 
+                                    unsigned int geomID,
                                     unsigned int instID,
                                     unsigned int primID,
                                     RTCRay_ *rtc_ray,
@@ -396,8 +387,60 @@ MI_VARIANT Float Shape<Float, Spectrum>::pdf_direction(const Interaction3f & /*i
     return pdf;
 }
 
+MI_VARIANT typename Shape<Float, Spectrum>::SilhouetteSample3f
+Shape<Float, Spectrum>::sample_silhouette(const Point3f & /*sample*/,
+                                          uint32_t /*type*/,
+                                          Mask /*active*/) const {
+    if constexpr (dr::is_jit_v<Float>)
+        return dr::zeros<SilhouetteSample3f>();
+    else
+        NotImplementedError("sample_silhouette");
+}
+
+MI_VARIANT typename Shape<Float, Spectrum>::Point3f
+Shape<Float, Spectrum>::invert_silhouette_sample(const SilhouetteSample3f & /*ss*/,
+                                                 Mask /*active*/) const {
+    if constexpr (dr::is_jit_v<Float>)
+        return dr::zeros<Point3f>();
+    else
+        NotImplementedError("invert_silhouette_sample");
+}
+
+MI_VARIANT typename Shape<Float, Spectrum>::Point3f
+Shape<Float, Spectrum>::differential_motion(const SurfaceInteraction3f &si,
+                                            Mask /*active*/) const {
+    return dr::detach(si.p);
+}
+
+MI_VARIANT typename Shape<Float, Spectrum>::SilhouetteSample3f
+Shape<Float, Spectrum>::primitive_silhouette_projection(const Point3f &,
+                                                        const SurfaceInteraction3f &,
+                                                        uint32_t,
+                                                        Float,
+                                                        Mask) const {
+    return dr::zeros<SilhouetteSample3f>();
+}
+
+MI_VARIANT
+std::tuple<DynamicBuffer<typename CoreAliases<Float>::UInt32>,
+           DynamicBuffer<Float>>
+Shape<Float, Spectrum>::precompute_silhouette(
+    const ScalarPoint3f & /*viewpoint*/) const {
+    NotImplementedError("precompute_silhouette");
+}
+
+MI_VARIANT typename Shape<Float, Spectrum>::SilhouetteSample3f
+Shape<Float, Spectrum>::sample_precomputed_silhouette(
+    const Point3f & /*viewpoint*/, Index /*sample1*/, Float /*sample2*/,
+    Mask /*active*/) const {
+    if constexpr (dr::is_jit_v<Float>)
+        return dr::zeros<SilhouetteSample3f>();
+    else
+        NotImplementedError("sample_precomputed_silhouette");
+}
+
 MI_VARIANT typename Shape<Float, Spectrum>::PreliminaryIntersection3f
-Shape<Float, Spectrum>::ray_intersect_preliminary(const Ray3f & /*ray*/, 
+Shape<Float, Spectrum>::ray_intersect_preliminary(const Ray3f & /*ray*/,
                                                   uint32_t /*prim_index*/, Mask /*active*/) const {
     NotImplementedError("ray_intersect_preliminary");
 }
@@ -548,13 +591,17 @@ MI_VARIANT void Shape<Float, Spectrum>::traverse(TraversalCallback *callback) {
         callback->put_object("interior_medium", m_interior_medium.get(), +ParamFlags::Differentiable);
     if (m_exterior_medium)
         callback->put_object("exterior_medium", m_exterior_medium.get(), +ParamFlags::Differentiable);
+
+    callback->put_parameter("silhouette_sampling_weight", m_silhouette_sampling_weight, +ParamFlags::NonDifferentiable);
 }
 
 MI_VARIANT
 void Shape<Float, Spectrum>::parameters_changed(const std::vector<std::string> &/*keys*/) {
     if (dirty()) {
         if constexpr (dr::is_jit_v<Float>) {
-            if (!is_mesh() && !is_bspline_curve() && !is_linear_curve()) // to_world/to_object is used
+            bool is_bspline_curve = (shape_type() == +ShapeType::BSplineCurve);
+            bool is_linear_curve = (shape_type() == +ShapeType::LinearCurve);
+            if (!is_mesh() && !is_bspline_curve && !is_linear_curve) // to_world/to_object is used
                 dr::make_opaque(m_to_world, m_to_object);
         }
 
@@ -576,7 +623,9 @@ MI_VARIANT bool Shape<Float, Spectrum>::parameters_grad_enabled() const {
 
 MI_VARIANT void Shape<Float, Spectrum>::initialize() {
     if constexpr (dr::is_jit_v<Float>) {
-        if (!is_mesh() && !is_bspline_curve() && !is_linear_curve()) // to_world/to_object is not used
+        bool is_bspline_curve = (shape_type() == +ShapeType::BSplineCurve);
+        bool is_linear_curve = (shape_type() == +ShapeType::LinearCurve);
+        if (!is_mesh() && !is_bspline_curve && !is_linear_curve) // to_world/to_object is not used
             dr::make_opaque(m_to_world, m_to_object);
     }
 

@@ -296,8 +296,15 @@ public:
 
                 /* The Stokes reference frame vector of this matrix lies perpendicular
                    to the plane of reflection. */
-                Vector3f s_axis_in  = dr::normalize(dr::cross(H, -wo_hat)),
-                         s_axis_out = dr::normalize(dr::cross(H, wi_hat));
+                Vector3f s_axis_in  = dr::cross(H, -wo_hat);
+                Vector3f s_axis_out = dr::cross(H, wi_hat);
+
+                // Singularity when the input & output are collinear with the normal
+                Mask collinear = dr::all(dr::eq(s_axis_in, Vector3f(0)));
+                s_axis_in  = dr::select(collinear, Vector3f(1, 0, 0),
+                                                   dr::normalize(s_axis_in));
+                s_axis_out = dr::select(collinear, Vector3f(1, 0, 0),
+                                                   dr::normalize(s_axis_out));
 
                 /* Rotate in/out reference vector of F s.t. it aligns with the implicit
                    Stokes bases of -wo_hat & wi_hat. */
@@ -330,7 +337,8 @@ public:
                 // Refract outside
                 Normal3f n(0.f, 0.f, 1.f);
                 Float inv_eta = dr::rcp(m_eta);
-                Float cos_theta_t_i = std::get<1>(fresnel(cos_theta_i, m_eta));
+                Float cos_theta_i_hat = ctx.mode == TransportMode::Radiance ? cos_theta_i : cos_theta_o;
+                Float cos_theta_t_i = std::get<1>(fresnel(cos_theta_i_hat, m_eta));
                 Vector3f wi_hat_p = -refract(wi_hat, cos_theta_t_i, inv_eta);
                 Spectrum Ti = mueller::specular_transmission(dr::abs(Frame3f::cos_theta(wi_hat_p)), inv_eta);
 
@@ -338,8 +346,19 @@ public:
 
                 /* The Stokes reference frame vector of `diff` lies perpendicular
                    to the plane of reflection. */
-                Vector3f s_axis_in  = dr::normalize(dr::cross(n, -wo_hat)),
-                         s_axis_out = dr::normalize(dr::cross(n,  wi_hat));
+                Vector3f s_axis_in  = dr::cross(n, -wo_hat);
+                Vector3f s_axis_out = dr::cross(n, wi_hat);
+
+                auto handle_singularity = [](const Vector3f &basis) {
+                    // Arbitrarily pick a perpendicular direction if the
+                    // reflection plane is ill-defined
+                    Vector3f output_basis(basis);
+                    Mask collinear = dr::all(dr::eq(basis, Vector3f(0)));
+                    dr::masked(output_basis, collinear) = Vector3f(1, 0, 0);
+                    return output_basis;
+                };
+                s_axis_in = dr::normalize(handle_singularity(s_axis_in));
+                s_axis_out = dr::normalize(handle_singularity(s_axis_out));
 
                 /* Rotate in/out reference vector of `diff` s.t. it aligns with the
                    implicit Stokes bases of -wo_hat & wi_hat. */

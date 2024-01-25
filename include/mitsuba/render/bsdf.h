@@ -281,7 +281,7 @@ public:
      * version is sampled.
      *
      * When sampling a continuous/non-delta component, this method also
-     * multiplies by the cosine foreshorening factor with respect to the
+     * multiplies by the cosine foreshortening factor with respect to the
      * sampled direction.
      *
      * \param ctx
@@ -637,14 +637,8 @@ typename SurfaceInteraction<Float, Spectrum>::BSDFPtr SurfaceInteraction<Float, 
     const typename SurfaceInteraction<Float, Spectrum>::RayDifferential3f &ray) {
     const BSDFPtr bsdf = shape->bsdf();
 
-    /// TODO: revisit the 'false' default for autodiff mode once there are actually BRDFs using
-    /// differentials
-    if constexpr (!dr::is_diff_v<Float>) {
-        if (!has_uv_partials() && dr::any(bsdf->needs_differentials()))
-            compute_uv_partials(ray);
-    } else {
-        DRJIT_MARK_USED(ray);
-    }
+    if (!has_uv_partials() && dr::any(bsdf->needs_differentials()))
+        compute_uv_partials(ray);
 
     return bsdf;
 }

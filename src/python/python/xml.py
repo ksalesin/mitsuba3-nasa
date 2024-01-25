@@ -1,7 +1,7 @@
 import os
 import sys
 from shutil import copy2
-import mitsuba.scalar_rgb as mi
+import mitsuba as mi
 import drjit as dr
 try:
     import numpy as np
@@ -601,15 +601,15 @@ class WriteXML:
                 self.element('integer', {'name':key, 'value': '%d' % value})
             elif isinstance(value, float):
                 self.element('float', {'name':key, 'value': '%f' % value})
-            elif (isinstance(value, (list, mi.Point3f, np.ndarray)
-                  if 'numpy' in sys.modules else (list, mi.Point3f))):
+            elif (isinstance(value, (list, mi.ScalarPoint3f, np.ndarray)
+                  if 'numpy' in sys.modules else (list, mi.ScalarPoint3f))):
                 # Cast to point
                 if len(value) == 3:
                     args = {'name': key, 'x' : value[0] , 'y' :  value[1] , 'z' :  value[2]}
                     self.element('point', args)
                 else:
                     raise ValueError("Expected 3 values for a point. Got %d instead." % len(value))
-            elif isinstance(value, mi.Transform4f):
+            elif isinstance(value, mi.ScalarTransform4f):
                 # In which plugin are we adding a transform?
                 parent_plugin = self.current_tag()
                 if parent_plugin == 'sensor':

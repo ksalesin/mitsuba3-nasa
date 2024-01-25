@@ -42,6 +42,10 @@ endif()
 option(MI_PROFILER_ITTNOTIFY "Forward profiler events (to Intel VTune)?" OFF)
 option(MI_PROFILER_NVTX      "Forward profiler events (to NVIDIA Nsight)?" OFF)
 
+if (NOT APPLE)
+  option(MI_ENABLE_OPTIX_DEBUG_VALIDATION "Enable debug flag for OptiX" OFF)
+endif()
+
 # ----------------------------------------------------------
 #  Check if submodules have been checked out, or fail early
 # ----------------------------------------------------------
@@ -305,6 +309,15 @@ else()
   message(STATUS "Mitsuba: using built-in implementation for CPU ray tracing.")
 endif()
 
+if (MI_ENABLE_OPTIX_DEBUG_VALIDATION)
+  add_definitions(-DMI_ENABLE_OPTIX_DEBUG_VALIDATION)
+  set(DRJIT_ENABLE_OPTIX_DEBUG_VALIDATION ON CACHE BOOL "Dr.Jit: OptiX debug and validation flags enabled." FORCE)
+  message(STATUS "Mitsuba: OptiX debug and validation flags enabled.")
+else()
+  set(DRJIT_ENABLE_OPTIX_DEBUG_VALIDATION OFF CACHE BOOL "Dr.Jit: OptiX debug and validation flags disabled." FORCE)
+  message(STATUS "Mitsuba: OptiX debug and validation flags disabled.")
+endif()
+
 if (MI_ENABLE_AUTODIFF)
   add_definitions(-DMI_ENABLE_AUTODIFF=1)
 endif()
@@ -489,9 +502,9 @@ endif()
 
 # Copy shared libraries to Python folders (no rpath on Windows)
 if (MSVC AND MI_ENABLE_PYTHON)
-  add_custom_target(copy-targets ALL)
-
   set(COPY_TARGETS mitsuba ${MI_DEPEND} ${MI_PLUGIN_TARGETS})
+  add_custom_target(copy-targets ALL DEPENDS ${COPY_TARGETS})
+
   foreach(target ${COPY_TARGETS})
     get_target_property(TARGET_FOLDER ${target} FOLDER)
     if (TARGET_FOLDER STREQUAL "drjit")

@@ -110,8 +110,9 @@ selected as the default approach to ensure continuity across grid cells.
 template <typename Float, typename Spectrum>
 class SDFGrid final : public Shape<Float, Spectrum> {
 public:
-    MI_IMPORT_BASE(Shape, m_to_world, m_to_object, m_is_instance, initialize,
-                   mark_dirty, get_children_string, parameters_grad_enabled)
+    MI_IMPORT_BASE(Shape, m_to_world, m_to_object, m_is_instance, m_shape_type,
+                   initialize, mark_dirty, get_children_string,
+                   parameters_grad_enabled)
     MI_IMPORT_TYPES()
 
     // Grid texture is always stored in single precision
@@ -179,6 +180,10 @@ public:
                 InputTensorXf(default_data, 4, default_shape), true, true,
                 dr::FilterMode::Linear, dr::WrapMode::Clamp);
         }
+
+        m_shape_type = ShapeType::SDFGrid;
+        dr::set_attr(this, "shape_type", m_shape_type);
+
         update();
         initialize();
     }
@@ -232,8 +237,8 @@ public:
 
     void traverse(TraversalCallback *callback) override {
         Base::traverse(callback);
-        callback->put_parameter("to_world",     *m_to_world.ptr(),          ParamFlags::Differentiable | ParamFlags::Discontinuous);
-        callback->put_parameter("grid",         m_grid_texture.tensor(),    ParamFlags::Differentiable | ParamFlags::Discontinuous);
+        callback->put_parameter("to_world",     *m_to_world.ptr(),          +ParamFlags::NonDifferentiable);
+        callback->put_parameter("grid",         m_grid_texture.tensor(),    +ParamFlags::NonDifferentiable);
         callback->put_parameter("watertight",   m_watertight,               +ParamFlags::NonDifferentiable);
     }
 
@@ -460,12 +465,6 @@ public:
 
         si.shape    = this;
         si.instance = nullptr;
-
-        if (unlikely(has_flag(ray_flags, RayFlags::BoundaryTest))) {
-            Float dp = dr::dot(si.sh_frame.n, -ray.d);
-            // Add non-linearity by squaring the returned value
-            si.boundary_test = dr::sqr(dp);
-        }
 
         return si;
     }

@@ -14,8 +14,8 @@
 
 NAMESPACE_BEGIN(mitsuba)
 
-#if !defined(NDEBUG)
-#  define MI_OPTIX_DEBUG 1
+#if !defined(NDEBUG) || defined(MI_ENABLE_OPTIX_DEBUG_VALIDATION)
+#define MI_ENABLE_OPTIX_DEBUG_VALIDATION_ON
 #endif
 
 #ifdef _MSC_VER
@@ -87,12 +87,12 @@ size_t init_optix_config(bool has_meshes, bool has_others, bool has_instances,
 
         OptixModuleCompileOptions module_compile_options { };
         module_compile_options.maxRegisterCount = OPTIX_COMPILE_DEFAULT_MAX_REGISTER_COUNT;
-    #if !defined(MI_OPTIX_DEBUG)
+    #if !defined(MI_ENABLE_OPTIX_DEBUG_VALIDATION_ON)
         module_compile_options.optLevel         = OPTIX_COMPILE_OPTIMIZATION_DEFAULT;
         module_compile_options.debugLevel       = OPTIX_COMPILE_DEBUG_LEVEL_NONE;
     #else
         module_compile_options.optLevel         = OPTIX_COMPILE_OPTIMIZATION_LEVEL_0;
-        module_compile_options.debugLevel       = OPTIX_COMPILE_DEBUG_LEVEL_MINIMAL;
+        module_compile_options.debugLevel       = OPTIX_COMPILE_DEBUG_LEVEL_FULL;
     #endif
 
         config.pipeline_compile_options.usesMotionBlur     = false;
@@ -119,13 +119,13 @@ size_t init_optix_config(bool has_meshes, bool has_others, bool has_instances,
             traversable_flag = OPTIX_TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_GAS;
         config.pipeline_compile_options.traversableGraphFlags = traversable_flag;
 
-    #if !defined(MI_OPTIX_DEBUG)
+    #if !defined(MI_ENABLE_OPTIX_DEBUG_VALIDATION_ON)
         config.pipeline_compile_options.exceptionFlags = OPTIX_EXCEPTION_FLAG_NONE;
     #else
         config.pipeline_compile_options.exceptionFlags =
-                OPTIX_EXCEPTION_FLAG_STACK_OVERFLOW
-                | OPTIX_EXCEPTION_FLAG_TRACE_DEPTH
-                | OPTIX_EXCEPTION_FLAG_DEBUG;
+                OPTIX_EXCEPTION_FLAG_DEBUG |
+                OPTIX_EXCEPTION_FLAG_TRACE_DEPTH |
+                OPTIX_EXCEPTION_FLAG_STACK_OVERFLOW;
     #endif
 
         unsigned int prim_flags = 0;
@@ -372,11 +372,13 @@ MI_VARIANT void Scene<Float, Spectrum>::accel_init_gpu(const Properties &props) 
             bool has_linear_curves = false;
 
             for (auto& shape : m_shapes) {
-                has_meshes           |= shape->is_mesh();
+                uint32_t type = shape->shape_type();
+
+                has_meshes           |= (type == +ShapeType::Mesh);
+                has_instances        |= (type == +ShapeType::Instance);
+                has_bspline_curves   |= (type == +ShapeType::BSplineCurve);
+                has_linear_curves    |= (type == +ShapeType::LinearCurve);
                 has_others           |= !shape->is_mesh() && !shape->is_instance();
-                has_instances        |= shape->is_instance();
-                has_bspline_curves   |= shape->is_bspline_curve();
-                has_linear_curves    |= shape->is_linear_curve();
             }
 
             for (auto& shape : m_shapegroups) {
