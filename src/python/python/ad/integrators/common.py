@@ -138,7 +138,7 @@ class ADIntegrator(mi.CppADIntegrator):
             )
 
             # Generate a set of rays starting at the sensor
-            ray, weight, pos, _ = self.sample_rays(scene, sensor, sampler)
+            ray, weight, pos = self.sample_rays(scene, sensor, sampler)
 
             # Launch the Monte Carlo sampling process in primal mode
             L, valid, state = self.sample(
@@ -149,7 +149,6 @@ class ADIntegrator(mi.CppADIntegrator):
                 depth=mi.UInt32(0),
                 δL=None,
                 state_in=None,
-                reparam=None,
                 active=mi.Bool(True)
             )
 
@@ -235,10 +234,10 @@ class ADIntegrator(mi.CppADIntegrator):
             )
 
             # Generate a set of rays starting at the sensor
-            ray, weight, pos, _ = self.sample_rays(scene, sensor, sampler)
+            ray, weight, pos = self.sample_rays(scene, sensor, sampler)
 
             # Launch the Monte Carlo sampling process in primal mode
-            L, valid, state = self.sample(
+            L, valid, _ = self.sample(
                 mode=dr.ADMode.Primal,
                 scene=scene,
                 sampler=sampler,
@@ -246,7 +245,6 @@ class ADIntegrator(mi.CppADIntegrator):
                 depth=mi.UInt32(0),
                 δL=None,
                 state_in=None,
-                reparam=None,
                 active=mi.Bool(True)
             )
 
@@ -997,31 +995,15 @@ class RBIntegrator(ADIntegrator):
             sensor = scene.sensors()[sensor]
 
         film = sensor.film()
-        aovs = self.aov_names()
 
         # Disable derivatives in all of the following
         with dr.suspend_grad():
             # Prepare the film and sample generator for rendering
-            sampler, spp = self.prepare(sensor, seed, spp, aovs)
-
-            # When the underlying integrator supports reparameterizations,
-            # perform necessary initialization steps and wrap the result using
-            # the _ReparamWrapper abstraction defined above
-            if hasattr(self, 'reparam'):
-                reparam = _ReparamWrapper(
-                    scene=scene,
-                    params=params,
-                    reparam=self.reparam,
-                    wavefront_size=sampler.wavefront_size(),
-                    seed=seed
-                )
-            else:
-                reparam = None
+            sampler, spp = self.prepare(sensor, seed, spp, self.aov_names())
 
             # Generate a set of rays starting at the sensor, keep track of
             # derivatives wrt. sample positions ('pos') if there are any
-            ray, weight, pos, det = self.sample_rays(scene, sensor,
-                                                     sampler, reparam)
+            ray, weight, pos = self.sample_rays(scene, sensor, sampler)
 
             # Launch the Monte Carlo sampling process in primal mode (1)
             L, valid, state_out = self.sample(
@@ -1032,7 +1014,6 @@ class RBIntegrator(ADIntegrator):
                 depth=mi.UInt32(0),
                 δL=None,
                 state_in=None,
-                reparam=None,
                 active=mi.Bool(True)
             )
 
@@ -1108,7 +1089,6 @@ class RBIntegrator(ADIntegrator):
                 depth=mi.UInt32(0),
                 δL=δL,
                 state_in=state_out,
-                reparam=reparam,
                 active=mi.Bool(True)
             )
 
@@ -1144,31 +1124,14 @@ class RBIntegrator(ADIntegrator):
                             " must be divisible by the number of child sensors (%i)!"
                             % (film_size.x, sensor_count))
 
-        aovs = self.aov_names()
-
         # Disable derivatives in all of the following
         with dr.suspend_grad():
             # Prepare the film and sample generator for rendering
-            sampler, spp = self.prepare(sensor, seed, spp, aovs)
-
-            # When the underlying integrator supports reparameterizations,
-            # perform necessary initialization steps and wrap the result using
-            # the _ReparamWrapper abstraction defined above
-            if hasattr(self, 'reparam'):
-                reparam = _ReparamWrapper(
-                    scene=scene,
-                    params=params,
-                    reparam=self.reparam,
-                    wavefront_size=sampler.wavefront_size(),
-                    seed=seed
-                )
-            else:
-                reparam = None
+            sampler, spp = self.prepare(sensor, seed, spp, self.aov_names())
 
             # Generate a set of rays starting at the sensor, keep track of
             # derivatives wrt. sample positions ('pos') if there are any
-            ray, weight, pos, det = self.sample_rays(scene, sensor,
-                                                     sampler, reparam)
+            ray, weight, pos = self.sample_rays(scene, sensor, sampler)
 
             # Launch the Monte Carlo sampling process in primal mode (1)
             L, valid, state_out = self.sample(
@@ -1179,7 +1142,6 @@ class RBIntegrator(ADIntegrator):
                 depth=mi.UInt32(0),
                 δL=None,
                 state_in=None,
-                reparam=None,
                 active=mi.Bool(True)
             )
 
@@ -1267,7 +1229,6 @@ class RBIntegrator(ADIntegrator):
                 depth=mi.UInt32(0),
                 δL=δL,
                 state_in=state_out,
-                reparam=reparam,
                 active=mi.Bool(True)
             )
 
