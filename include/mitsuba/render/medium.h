@@ -47,8 +47,27 @@ public:
      *                 The MediumInteraction will always be valid,
      *                 except if the ray missed the Medium's bounding box.
      */
-    MediumInteraction3f sample_interaction(const Ray3f &ray, Float sample,
-                                           UInt32 channel, Mask active) const;
+    virtual MediumInteraction3f 
+    sample_interaction(const Ray3f &ray, Float sample,
+                       UInt32 channel, Mask active) const;
+
+    /**
+     * \brief Same as sample_interaction(), but evaluates both the current and 
+     * past state of this Medium to use for recursive control variates.
+     *
+     * \param ray      Ray, along which a distance should be sampled
+     * \param sample   A uniformly distributed random sample
+     * \param channel  The channel according to which we will sample the
+     * free-flight distance. This argument is only used when rendering in RGB
+     * modes.
+     *
+     * \return         This method returns a MediumInteraction.
+     *                 The MediumInteraction will always be valid,
+     *                 except if the ray missed the Medium's bounding box.
+     */
+    virtual std::pair<MediumInteraction3f, MediumInteraction3f>
+    sample_interaction_twostates(const Ray3f &ray, Float sample,
+                                 UInt32 channel, Mask active) const;
 
     /**
      * \brief Compute the transmittance and PDF
@@ -65,7 +84,7 @@ public:
      * \return   This method returns a pair of (Transmittance, PDF).
      *
      */
-    std::pair<UnpolarizedSpectrum, UnpolarizedSpectrum>
+    virtual std::pair<UnpolarizedSpectrum, UnpolarizedSpectrum>
     transmittance_eval_pdf(const MediumInteraction3f &mi,
                            const SurfaceInteraction3f &si,
                            Mask active) const;
@@ -128,6 +147,7 @@ DRJIT_VCALL_TEMPLATE_BEGIN(mitsuba::Medium)
     DRJIT_VCALL_METHOD(get_majorant)
     DRJIT_VCALL_METHOD(intersect_aabb)
     DRJIT_VCALL_METHOD(sample_interaction)
+    DRJIT_VCALL_METHOD(sample_interaction_twostates)
     DRJIT_VCALL_METHOD(transmittance_eval_pdf)
     DRJIT_VCALL_METHOD(get_scattering_coefficients)
 DRJIT_VCALL_TEMPLATE_END(mitsuba::Medium)

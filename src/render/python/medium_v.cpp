@@ -26,6 +26,26 @@ public:
         PYBIND11_OVERRIDE_PURE(Return, Medium, get_scattering_coefficients, mi, active);
     }
 
+    MediumInteraction3f sample_interaction(const Ray3f &ray, Float sample,
+                                           UInt32 channel, Mask active) const override {
+        PYBIND11_OVERRIDE_PURE(MediumInteraction3f, Medium, sample_interaction, ray, sample, channel, active);
+    }
+
+    std::pair<MediumInteraction3f, MediumInteraction3f>
+    sample_interaction_twostates(const Ray3f &ray, Float sample,
+                       UInt32 channel, Mask active) const override {
+        using Return = std::pair<MediumInteraction3f, MediumInteraction3f>;
+        PYBIND11_OVERRIDE_PURE(Return, Medium, sample_interaction_twostates, ray, sample, channel, active);
+    }
+
+    std::pair<UnpolarizedSpectrum, UnpolarizedSpectrum>
+    transmittance_eval_pdf(const MediumInteraction3f &mi,
+                           const SurfaceInteraction3f &si,
+                           Mask active) const override {
+        using Return = std::pair<UnpolarizedSpectrum, UnpolarizedSpectrum>;
+        PYBIND11_OVERRIDE_PURE(Return, Medium, transmittance_eval_pdf, mi, si, active);
+    }
+
     std::string to_string() const override {
         PYBIND11_OVERRIDE_PURE(std::string, Medium, to_string, );
     }
@@ -73,6 +93,11 @@ template <typename Ptr, typename Cls> void bind_medium_generic(Cls &cls) {
                 return ptr->sample_interaction(ray, sample, channel, active); },
             "ray"_a, "sample"_a, "channel"_a, "active"_a,
             D(Medium, sample_interaction))
+        .def("sample_interaction_twostates",
+            [](Ptr ptr, const Ray3f &ray, Float sample, UInt32 channel, Mask active) {
+                return ptr->sample_interaction_twostates(ray, sample, channel, active); },
+            "ray"_a, "sample"_a, "channel"_a, "active"_a, 
+            "Sample a medium interaction and evaluate it for 2 states")
        .def("transmittance_eval_pdf",
             [](Ptr ptr, const MediumInteraction3f &mi,
                const SurfaceInteraction3f &si, Mask active) {

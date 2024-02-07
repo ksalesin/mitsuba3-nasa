@@ -86,6 +86,17 @@ Medium<Float, Spectrum>::sample_interaction(const Ray3f &ray, Float sample,
 }
 
 MI_VARIANT
+std::pair<typename Medium<Float, Spectrum>::MediumInteraction3f,
+          typename Medium<Float, Spectrum>::MediumInteraction3f>
+Medium<Float, Spectrum>::sample_interaction_twostates(const Ray3f &ray, Float sample,
+                                            UInt32 channel, Mask active) const {
+    MI_MASKED_FUNCTION(ProfilerPhase::MediumSample, active);
+    MediumInteraction3f mi = sample_interaction(ray, sample, channel, active);
+    // No 2 states by default, just return the sampled interaction twice
+    return { mi, mi };
+}
+
+MI_VARIANT
 std::pair<typename Medium<Float, Spectrum>::UnpolarizedSpectrum,
           typename Medium<Float, Spectrum>::UnpolarizedSpectrum>
 Medium<Float, Spectrum>::transmittance_eval_pdf(const MediumInteraction3f &mi,

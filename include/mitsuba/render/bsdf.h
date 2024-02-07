@@ -349,6 +349,27 @@ public:
                           Mask active = true) const = 0;
 
     /**
+     * \brief Same as eval(), but evaluates a past state of this BSDF to use for
+     * recursive control variates.
+     *
+     * \param ctx
+     *     A context data structure describing which lobes to evaluate,
+     *     and whether radiance or importance are being transported.
+     *
+     * \param si
+     *     A surface interaction data structure describing the underlying
+     *     surface position. The incident direction is obtained from
+     *     the field <tt>si.wi</tt>.
+     *
+     * \param wo
+     *     The outgoing direction
+     */
+    virtual Spectrum eval_old(const BSDFContext &ctx,
+                              const SurfaceInteraction3f &si,
+                              const Vector3f &wo,
+                              Mask active = true) const;
+
+    /**
      * \brief Compute the probability per unit solid angle of sampling a
      * given direction
      *
@@ -656,6 +677,7 @@ NAMESPACE_END(mitsuba)
 DRJIT_VCALL_TEMPLATE_BEGIN(mitsuba::BSDF)
     DRJIT_VCALL_METHOD(sample)
     DRJIT_VCALL_METHOD(eval)
+    DRJIT_VCALL_METHOD(eval_old)
     DRJIT_VCALL_METHOD(eval_null_transmission)
     DRJIT_VCALL_METHOD(pdf)
     DRJIT_VCALL_METHOD(eval_pdf)

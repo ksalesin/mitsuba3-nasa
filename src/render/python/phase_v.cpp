@@ -26,6 +26,14 @@ public:
         PYBIND11_OVERRIDE_PURE(Return, PhaseFunction, eval_pdf, ctx, mi, wo, active);
     }
 
+    std::pair<Spectrum, Float> eval_pdf_old(const PhaseFunctionContext &ctx,
+                                            const MediumInteraction3f &mi,
+                                            const Vector3f &wo,
+                                            Mask active) const override {
+        using Return = std::pair<Spectrum, Float>;
+        PYBIND11_OVERRIDE_PURE(Return, PhaseFunction, eval_pdf_old, ctx, mi, wo, active);
+    }
+
     Float projected_area(const MediumInteraction3f &mi, Mask active) const override {
         PYBIND11_OVERRIDE(Float, PhaseFunction, projected_area, mi, active);
     }
@@ -65,6 +73,11 @@ template <typename Ptr, typename Cls> void bind_phase_generic(Cls &cls) {
                Mask active) { return ptr->eval_pdf(ctx, mi, wo, active); },
             "ctx"_a, "mi"_a, "wo"_a, "active"_a = true,
             D(PhaseFunction, eval_pdf))
+        .def("eval_pdf_old",
+            [](Ptr ptr, const PhaseFunctionContext &ctx,
+               const MediumInteraction3f &mi, const Vector3f &wo,
+               Mask active) { return ptr->eval_pdf_old(ctx, mi, wo, active); },
+            "ctx"_a, "mi"_a, "wo"_a, "active"_a = true, "eval pdf old")
        .def("projected_area",
             [](Ptr ptr, const MediumInteraction3f &mi,
                Mask active) { return ptr->projected_area(mi, active); },

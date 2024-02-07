@@ -161,6 +161,29 @@ public:
                                                 Mask active = true) const = 0;
 
     /**
+     * \brief Same as eval_pdf(), but evaluates a past state of this phase 
+     * function to use for recursive control variates.
+     *
+     * \param ctx
+     *     A phase function sampling context, contains information
+     *     about the transport mode
+     *
+     * \param mi
+     *     A medium interaction data structure describing the underlying
+     *     medium position. The incident direction is obtained from
+     *     the field <tt>mi.wi</tt>.
+     *
+     * \param wo
+     *     An outgoing direction to evaluate.
+     *
+     * \return The value and the sampling PDF of the phase function in direction wo
+     */
+    virtual std::pair<Spectrum, Float> eval_pdf_old(const PhaseFunctionContext &ctx,
+                                                    const MediumInteraction3f &mi,
+                                                    const Vector3f &wo,
+                                                    Mask active = true) const;
+
+    /**
      * \brief Returns the microflake projected area
      *
      * The function returns the projected area of the microflake distribution defining the phase
@@ -251,6 +274,7 @@ NAMESPACE_END(mitsuba)
 DRJIT_VCALL_TEMPLATE_BEGIN(mitsuba::PhaseFunction)
     DRJIT_VCALL_METHOD(sample)
     DRJIT_VCALL_METHOD(eval_pdf)
+    DRJIT_VCALL_METHOD(eval_pdf_old)
     DRJIT_VCALL_METHOD(projected_area)
     DRJIT_VCALL_METHOD(max_projected_area)
     DRJIT_VCALL_GETTER(flags, uint32_t)
