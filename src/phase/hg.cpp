@@ -64,6 +64,8 @@ public:
     }
 
     MI_INLINE Float eval_hg(Float cos_theta) const {
+        // This eval_hg() assumes the graphics convention of both wi and wo
+        // pointing *away* from the scatter point
         Float temp = 1.f + dr::sqr(m_g) + 2.f * m_g * cos_theta;
         return dr::InvFourPi<ScalarFloat> * (1.f - dr::sqr(m_g)) /
                (temp * dr::sqrt(temp));
@@ -85,7 +87,9 @@ public:
         Float sin_theta = dr::safe_sqrt(1.f - dr::sqr(cos_theta));
         auto [sin_phi, cos_phi] = dr::sincos(2.f * dr::Pi<ScalarFloat> * sample2.y());
 
-        Vector3f wo = Vector3f(sin_theta * cos_phi, sin_theta * sin_phi, -cos_theta);
+        // [Kate] We convert to world space in the integrator 
+        // and our mi.sh_frame = ray.d, not -ray.d (as in the base Mitsuba 3), to be consistent with to_world_mueller()
+        Vector3f wo = Vector3f(sin_theta * cos_phi, sin_theta * sin_phi, cos_theta);
 
         return { wo, 1.f, eval_hg(-cos_theta) };
     }
