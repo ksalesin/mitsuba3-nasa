@@ -110,6 +110,17 @@ Medium<Float, Spectrum>::transmittance_eval_pdf(const MediumInteraction3f &mi,
     return { tr, pdf };
 }
 
+MI_VARIANT
+std::pair<typename Medium<Float, Spectrum>::UnpolarizedSpectrum,
+          typename Medium<Float, Spectrum>::UnpolarizedSpectrum>
+Medium<Float, Spectrum>::transmittance_eval_pdf_old(const MediumInteraction3f &mi,
+                                                    const SurfaceInteraction3f &si,
+                                                    Mask active) const {
+    MI_MASKED_FUNCTION(ProfilerPhase::MediumEvaluate, active);
+
+    return transmittance_eval_pdf(mi, si, active);
+}
+
 MI_IMPLEMENT_CLASS_VARIANT(Medium, Object, "medium")
 MI_INSTANTIATE_CLASS(Medium)
 NAMESPACE_END(mitsuba)

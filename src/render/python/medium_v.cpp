@@ -46,6 +46,14 @@ public:
         PYBIND11_OVERRIDE_PURE(Return, Medium, transmittance_eval_pdf, mi, si, active);
     }
 
+    std::pair<UnpolarizedSpectrum, UnpolarizedSpectrum>
+    transmittance_eval_pdf_old(const MediumInteraction3f &mi,
+                               const SurfaceInteraction3f &si,
+                               Mask active) const override {
+        using Return = std::pair<UnpolarizedSpectrum, UnpolarizedSpectrum>;
+        PYBIND11_OVERRIDE_PURE(Return, Medium, transmittance_eval_pdf_old, mi, si, active);
+    }
+
     std::string to_string() const override {
         PYBIND11_OVERRIDE_PURE(std::string, Medium, to_string, );
     }
@@ -104,6 +112,11 @@ template <typename Ptr, typename Cls> void bind_medium_generic(Cls &cls) {
                 return ptr->transmittance_eval_pdf(mi, si, active); },
             "mi"_a, "si"_a, "active"_a,
             D(Medium, transmittance_eval_pdf))
+        .def("transmittance_eval_pdf_old",
+            [](Ptr ptr, const MediumInteraction3f &mi,
+               const SurfaceInteraction3f &si, Mask active) {
+                return ptr->transmittance_eval_pdf_old(mi, si, active); },
+            "mi"_a, "si"_a, "active"_a, "transmittance eval pdf old")
        .def("get_scattering_coefficients",
             [](Ptr ptr, const MediumInteraction3f &mi, Mask active = true) {
                 return ptr->get_scattering_coefficients(mi, active); },

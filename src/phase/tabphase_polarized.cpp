@@ -117,7 +117,7 @@ public:
     }
 
     std::tuple<Vector3f, Spectrum, Float> sample(const PhaseFunctionContext &ctx,
-                                                 const MediumInteraction3f &mi,
+                                                 const MediumInteraction3f &mei,
                                                  Float /* sample1 */,
                                                  const Point2f &sample2,
                                                  Mask active) const override {
@@ -140,14 +140,14 @@ public:
         // and our mi.sh_frame = ray.d, not -ray.d (as in the base Mitsuba 3), to be consistent with to_world_mueller()
         // wo = -mi.to_world(wo);
 
-        auto [ phase_val, phase_pdf ] = eval_pdf(ctx, mi, wo, active);
+        auto [ phase_val, phase_pdf ] = eval_pdf(ctx, mei, wo, active);
         Spectrum phase_weight = phase_val * dr::rcp(phase_pdf);
 
         return { wo, phase_weight, phase_pdf };
     }
 
     std::pair<Spectrum, Float> eval_pdf(const PhaseFunctionContext &ctx,
-                                        const MediumInteraction3f &mi,
+                                        const MediumInteraction3f &mei,
                                         const Vector3f &wo,
                                         Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionEvaluate, active);
@@ -156,7 +156,7 @@ public:
         // (with cos θ = 1 corresponding to forward scattering).
         // This parameterization differs from the convention used internally by
         // Mitsuba and is the reason for the minus sign below.
-        Float cos_theta = -dot(wo, mi.wi);
+        Float cos_theta = -dot(wo, mei.wi);
 
         Float m11 = m_m11.eval_pdf(cos_theta, active);
         Float m12 = m_m12.eval_pdf(cos_theta, active);
@@ -177,8 +177,8 @@ public:
                 pBSDFs below we need to know the propagation direction of light.
                 In the following, light arrives along `-wo_hat` and leaves along
                 `+wi_hat`. */
-            Vector3f wo_hat = ctx.mode == TransportMode::Radiance ? wo : mi.wi,
-                     wi_hat = ctx.mode == TransportMode::Radiance ? mi.wi : wo;
+            Vector3f wo_hat = ctx.mode == TransportMode::Radiance ? wo : mei.wi,
+                     wi_hat = ctx.mode == TransportMode::Radiance ? mei.wi : wo;
 
             /* The Stokes reference frame vector of this matrix lies in the 
                 scattering plane spanned by wi and wo. */

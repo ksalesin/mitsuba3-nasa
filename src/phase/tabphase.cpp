@@ -94,7 +94,10 @@ public:
 
         // Switch the sampled direction to graphics convention and transform the
         // computed direction to world coordinates
-        wo = -mi.to_world(wo);
+        //
+        // [Kate] We convert to world space in the integrator 
+        // and our mi.sh_frame = ray.d, not -ray.d (as in the base Mitsuba 3), to be consistent with to_world_mueller()
+        // wo = -mi.to_world(wo);
 
         // Retrieve the PDF value from the physics convention-sampled angle
         Float pdf = m_distr.eval_pdf_normalized(cos_theta_prime, active) *

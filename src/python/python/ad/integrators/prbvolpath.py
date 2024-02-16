@@ -254,7 +254,7 @@ class PRBVolpathIntegrator(RBIntegrator):
 
                     # Query the BSDF for that emitter-sampled direction
                     bsdf_val, bsdf_pdf = bsdf.eval_pdf(ctx, si, si.to_local(ds.d), active_e_surface)
-                    phase_val, phase_pdf = phase.eval_pdf(phase_ctx, mei, ds.d, active_e_medium)
+                    phase_val, phase_pdf = phase.eval_pdf(phase_ctx, mei, mei.to_local(ds.d), active_e_medium)
                     nee_weight = dr.select(active_e_surface, bsdf_val, phase_val)
                     nee_directional_pdf = dr.select(ds.delta, 0.0, dr.select(active_e_surface, bsdf_pdf, phase_pdf))
 
@@ -289,7 +289,7 @@ class PRBVolpathIntegrator(RBIntegrator):
                         δL += dr.forward_to(Lo)
 
                 throughput[act_medium_scatter] *= phase_weight
-                ray[act_medium_scatter] = mei.spawn_ray(wo)
+                ray[act_medium_scatter] = mei.spawn_ray(mei.to_world(wo))
                 needs_intersection |= act_medium_scatter
                 last_scatter_direction_pdf[act_medium_scatter] = phase_pdf
 

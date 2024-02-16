@@ -113,7 +113,7 @@ public:
     }
 
     std::tuple<Vector3f, Spectrum, Float> sample(const PhaseFunctionContext &ctx,
-                                                 const MediumInteraction3f &mi,
+                                                 const MediumInteraction3f &mei,
                                                  Float sample1, const Point2f &sample2,
                                                  Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionSample, active);
@@ -123,7 +123,7 @@ public:
         std::vector<Float> cdf;
 
         for (size_t i = 0; i < m_nested_phase.size() - 1; ++i) {
-            Float w_i = eval_weight(mi, i, active);
+            Float w_i = eval_weight(mei, i, active);
             weight.push_back(w_i);
 
             weight_sum += w_i;
@@ -150,7 +150,7 @@ public:
             ctx2.component = ctx.component - component_sum;
 
             auto [wo, w, pdf] = m_nested_phase[index]->sample(
-                ctx2, mi, sample1, sample2, active);
+                ctx2, mei, sample1, sample2, active);
 
             w *= weight[index];
             pdf *= weight[index];
@@ -171,19 +171,19 @@ public:
 
         PhaseFunctionPtr phase = dr::gather<PhaseFunctionPtr>(m_phase_dr, idx_u, active);
 
-        auto [wo, w, pdf] = phase->sample(ctx, mi, sample1_adjusted, sample2, active);
+        auto [wo, w, pdf] = phase->sample(ctx, mei, sample1_adjusted, sample2, active);
 
         return { wo, w, pdf };
     }
 
-    MI_INLINE Float eval_weight(const MediumInteraction3f &mi,
+    MI_INLINE Float eval_weight(const MediumInteraction3f &mei,
                                 const uint32_t index,
                                 const Mask &active) const {
-        return dr::clamp(m_weight[index]->eval_1(mi, active), 0.f, 1.f);
+        return dr::clamp(m_weight[index]->eval_1(mei, active), 0.f, 1.f);
     }
 
     std::pair<Spectrum, Float> eval_pdf(const PhaseFunctionContext &ctx,
-                                        const MediumInteraction3f &mi,
+                                        const MediumInteraction3f &mei,
                                         const Vector3f &wo,
                                         Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionEvaluate, active);
@@ -192,7 +192,7 @@ public:
         std::vector<Float> weight;
 
         for (size_t i = 0; i < m_nested_phase.size() - 1; ++i) {
-            Float w_i = eval_weight(mi, i, active);
+            Float w_i = eval_weight(mei, i, active);
             weight.push_back(w_i);
 
             weight_sum += w_i;
@@ -216,7 +216,7 @@ public:
 
             ctx2.component = ctx.component - component_sum;
 
-            auto [val, pdf] = m_nested_phase[index]->eval_pdf(ctx2, mi, wo, active);
+            auto [val, pdf] = m_nested_phase[index]->eval_pdf(ctx2, mei, wo, active);
 
             val *= weight[index];
             pdf *= weight[index];
@@ -227,7 +227,7 @@ public:
             Float pdf = 0.f;
 
             for (size_t i = 0; i < m_nested_phase.size(); ++i) {
-                auto [val_i, pdf_i] = m_nested_phase[i]->eval_pdf(ctx, mi, wo, active);
+                auto [val_i, pdf_i] = m_nested_phase[i]->eval_pdf(ctx, mei, wo, active);
 
                 val += val_i * weight[i];
                 pdf += pdf_i * weight[i];

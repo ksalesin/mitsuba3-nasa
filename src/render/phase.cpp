@@ -12,10 +12,10 @@ MI_VARIANT PhaseFunction<Float, Spectrum>::~PhaseFunction() {}
 
 MI_VARIANT std::pair<Spectrum, Float>
 PhaseFunction<Float, Spectrum>::eval_pdf_old(const PhaseFunctionContext &ctx,
-                                             const MediumInteraction3f &mi,
+                                             const MediumInteraction3f &mei,
                                              const Vector3f &wo,
                                              Mask active) const {
-    return eval_pdf_old(ctx, mi, wo, active);
+    return eval_pdf(ctx, mei, wo, active);
 }
 
 MI_IMPLEMENT_CLASS_VARIANT(PhaseFunction, Object, "phase")

@@ -115,7 +115,7 @@ public:
     }
 
     Spectrum eval_mie(const PhaseFunctionContext &ctx, 
-                      const MediumInteraction3f &mi, 
+                      const MediumInteraction3f &mei, 
                       const Vector3f &wo,
                       Mask active) const {
         Spectrum phase_val(0.f);
@@ -124,7 +124,7 @@ public:
         if constexpr(is_rgb_v<Spectrum>) {
             wavelengths_u = 0.f;
         } else {
-            wavelengths_u = unpolarized_spectrum(mi.wavelengths);
+            wavelengths_u = unpolarized_spectrum(mei.wavelengths);
         }
 
         // The direction of light propagation is +z in local space
@@ -216,8 +216,8 @@ public:
                 pBSDFs below we need to know the propagation direction of light.
                 In the following, light arrives along `-wo_hat` and leaves along
                 `+wi_hat`. */
-            Vector3f wo_hat = ctx.mode == TransportMode::Radiance ? wo : mi.wi,
-                     wi_hat = ctx.mode == TransportMode::Radiance ? mi.wi : wo;
+            Vector3f wo_hat = ctx.mode == TransportMode::Radiance ? wo : mei.wi,
+                     wi_hat = ctx.mode == TransportMode::Radiance ? mei.wi : wo;
 
             /* The Stokes reference frame vector of this matrix lies in the 
                 scattering plane spanned by wi and wo.
@@ -242,7 +242,7 @@ public:
     }
 
     std::tuple<Vector3f, Spectrum, Float> sample(const PhaseFunctionContext &ctx,
-                                                 const MediumInteraction3f &mi,
+                                                 const MediumInteraction3f &mei,
                                                  Float /* sample1 */,
                                                  const Point2f &sample,
                                                  Mask active) const override {
@@ -257,13 +257,13 @@ public:
         auto pdf = warp::square_to_uniform_sphere_pdf(wo);
 
         // Get Mueller matrix
-        Spectrum phase_weight = eval_mie(ctx, mi, wo, active);
+        Spectrum phase_weight = eval_mie(ctx, mei, wo, active);
 
         return { wo, phase_weight, pdf };
     }
 
     std::pair<Spectrum, Float> eval_pdf(const PhaseFunctionContext &ctx,
-                                        const MediumInteraction3f & mi,
+                                        const MediumInteraction3f & mei,
                                         const Vector3f &wo,
                                         Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionEvaluate, active);
@@ -272,7 +272,7 @@ public:
          if (jit_flag(JitFlag::Recording))
             return { Spectrum(0.f), 0.f };
 
-        Spectrum phase_val = eval_mie(ctx, mi, wo, active);
+        Spectrum phase_val = eval_mie(ctx, mei, wo, active);
 
         // We use a tabulated version of the Mie phase function for sampling in practice
         Float pdf = warp::square_to_uniform_sphere_pdf(wo);

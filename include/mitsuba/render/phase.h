@@ -132,7 +132,7 @@ public:
      * \return A sampled direction wo and its corresponding weight and PDF
      */
     virtual std::tuple<Vector3f, Spectrum, Float> sample(const PhaseFunctionContext &ctx,
-                                                         const MediumInteraction3f &mi,
+                                                         const MediumInteraction3f &mei,
                                                          Float sample1, const Point2f &sample2,
                                                          Mask active = true) const = 0;
     /**
@@ -156,7 +156,7 @@ public:
      * \return The value and the sampling PDF of the phase function in direction wo
      */
     virtual std::pair<Spectrum, Float> eval_pdf(const PhaseFunctionContext &ctx,
-                                                const MediumInteraction3f &mi,
+                                                const MediumInteraction3f &mei,
                                                 const Vector3f &wo,
                                                 Mask active = true) const = 0;
 
@@ -179,7 +179,7 @@ public:
      * \return The value and the sampling PDF of the phase function in direction wo
      */
     virtual std::pair<Spectrum, Float> eval_pdf_old(const PhaseFunctionContext &ctx,
-                                                    const MediumInteraction3f &mi,
+                                                    const MediumInteraction3f &mei,
                                                     const Vector3f &wo,
                                                     Mask active = true) const;
 

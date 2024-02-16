@@ -1109,7 +1109,7 @@ class RBIntegrator(ADIntegrator):
                              seed: int = 0,
                              spp: int = 0) -> None:
         """ Analogous to above render_backward() but for render_1() """
-
+        
         if isinstance(sensor, int):
             sensor = scene.sensors()[sensor]
 

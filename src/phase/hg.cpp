@@ -72,7 +72,7 @@ public:
     }
 
     std::tuple<Vector3f, Spectrum, Float> sample(const PhaseFunctionContext & /* ctx */,
-                                                 const MediumInteraction3f &mi,
+                                                 const MediumInteraction3f &mei,
                                                  Float /* sample1 */,
                                                  const Point2f &sample2,
                                                  Mask active) const override {
@@ -95,11 +95,11 @@ public:
     }
 
     std::pair<Spectrum, Float> eval_pdf(const PhaseFunctionContext & /* ctx */,
-                                        const MediumInteraction3f &mi,
+                                        const MediumInteraction3f &mei,
                                         const Vector3f &wo,
                                         Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionEvaluate, active);
-        Float pdf = eval_hg(dr::dot(wo, mi.wi));
+        Float pdf = eval_hg(dr::dot(wo, mei.wi));
         return { pdf, pdf };
     }
 

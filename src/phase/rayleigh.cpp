@@ -52,7 +52,7 @@ public:
     }
 
     MI_INLINE Spectrum eval_rayleigh(const PhaseFunctionContext &ctx, 
-                                      const MediumInteraction3f &mi,
+                                      const MediumInteraction3f &mei,
                                       const Vector3f &wo,
                                       Float cos_theta) const {
         Spectrum phase_val;
@@ -65,8 +65,8 @@ public:
                 pBSDFs below we need to know the propagation direction of light.
                 In the following, light arrives along `-wo_hat` and leaves along
                 `+wi_hat`. */
-            Vector3f wo_hat = ctx.mode == TransportMode::Radiance ? wo : mi.wi,
-                     wi_hat = ctx.mode == TransportMode::Radiance ? mi.wi : wo;
+            Vector3f wo_hat = ctx.mode == TransportMode::Radiance ? wo : mei.wi,
+                     wi_hat = ctx.mode == TransportMode::Radiance ? mei.wi : wo;
 
             /* The Stokes reference frame vector of this matrix lies in the 
                 scattering plane spanned by wi and wo. */
@@ -95,7 +95,7 @@ public:
     }
 
     std::tuple<Vector3f, Spectrum, Float> sample(const PhaseFunctionContext &ctx,
-                                                 const MediumInteraction3f &mi,
+                                                 const MediumInteraction3f &mei,
                                                  Float /* sample1 */,
                                                  const Point2f &sample,
                                                  Mask active) const override {
@@ -111,18 +111,18 @@ public:
 
         auto wo = Vector3f( sin_theta * cos_phi, sin_theta * sin_phi, cos_theta );
         Float pdf = eval_rayleigh_pdf(cos_theta);
-        Spectrum phase_weight = eval_rayleigh(ctx, mi, wo, cos_theta) * dr::rcp(pdf);
+        Spectrum phase_weight = eval_rayleigh(ctx, mei, wo, cos_theta) * dr::rcp(pdf);
 
         return { wo, phase_weight, pdf };
     }
 
     std::pair<Spectrum, Float> eval_pdf(const PhaseFunctionContext &ctx,
-                                        const MediumInteraction3f &mi,
+                                        const MediumInteraction3f &mei,
                                         const Vector3f &wo,
                                         Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionEvaluate, active);
-        Float cos_theta = dot(wo, -mi.wi);
-        Spectrum phase_val = eval_rayleigh(ctx, mi, wo, cos_theta);
+        Float cos_theta = dot(wo, -mei.wi);
+        Spectrum phase_val = eval_rayleigh(ctx, mei, wo, cos_theta);
         Float pdf = eval_rayleigh_pdf(cos_theta);
         return { phase_val, pdf };
     }

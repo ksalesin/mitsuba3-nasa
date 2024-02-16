@@ -89,6 +89,18 @@ public:
                            const SurfaceInteraction3f &si,
                            Mask active) const;
 
+    /**
+     * \brief Same as transmittance_eval_pdf_old(), but evaluates a past state 
+     * of this medium to use for recursive control variates.
+     *
+     * \return   This method returns a pair of (Transmittance, PDF).
+     *
+     */
+    virtual std::pair<UnpolarizedSpectrum, UnpolarizedSpectrum>
+    transmittance_eval_pdf_old(const MediumInteraction3f &mi,
+                               const SurfaceInteraction3f &si,
+                               Mask active) const;
+
     /// Return the phase function of this medium
     MI_INLINE const PhaseFunction *phase_function() const {
         return m_phase_function.get();
@@ -149,6 +161,7 @@ DRJIT_VCALL_TEMPLATE_BEGIN(mitsuba::Medium)
     DRJIT_VCALL_METHOD(sample_interaction)
     DRJIT_VCALL_METHOD(sample_interaction_twostates)
     DRJIT_VCALL_METHOD(transmittance_eval_pdf)
+    DRJIT_VCALL_METHOD(transmittance_eval_pdf_old)
     DRJIT_VCALL_METHOD(get_scattering_coefficients)
 DRJIT_VCALL_TEMPLATE_END(mitsuba::Medium)
 

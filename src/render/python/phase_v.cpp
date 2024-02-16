@@ -11,31 +11,31 @@ public:
     PyPhaseFunction(const Properties &props) : PhaseFunction(props) {}
 
     std::tuple<Vector3f, Spectrum, Float> sample(const PhaseFunctionContext &ctx,
-                                                 const MediumInteraction3f &mi,
+                                                 const MediumInteraction3f &mei,
                                                  Float sample1, const Point2f &sample2,
                                                  Mask active) const override {
         using Return = std::tuple<Vector3f, Spectrum, Float>;
-        PYBIND11_OVERRIDE_PURE(Return, PhaseFunction, sample, ctx, mi, sample1, sample2, active);
+        PYBIND11_OVERRIDE_PURE(Return, PhaseFunction, sample, ctx, mei, sample1, sample2, active);
     }
 
     std::pair<Spectrum, Float> eval_pdf(const PhaseFunctionContext &ctx,
-                                        const MediumInteraction3f &mi,
+                                        const MediumInteraction3f &mei,
                                         const Vector3f &wo,
                                         Mask active) const override {
         using Return = std::pair<Spectrum, Float>;
-        PYBIND11_OVERRIDE_PURE(Return, PhaseFunction, eval_pdf, ctx, mi, wo, active);
+        PYBIND11_OVERRIDE_PURE(Return, PhaseFunction, eval_pdf, ctx, mei, wo, active);
     }
 
     std::pair<Spectrum, Float> eval_pdf_old(const PhaseFunctionContext &ctx,
-                                            const MediumInteraction3f &mi,
+                                            const MediumInteraction3f &mei,
                                             const Vector3f &wo,
                                             Mask active) const override {
         using Return = std::pair<Spectrum, Float>;
-        PYBIND11_OVERRIDE_PURE(Return, PhaseFunction, eval_pdf_old, ctx, mi, wo, active);
+        PYBIND11_OVERRIDE_PURE(Return, PhaseFunction, eval_pdf_old, ctx, mei, wo, active);
     }
 
-    Float projected_area(const MediumInteraction3f &mi, Mask active) const override {
-        PYBIND11_OVERRIDE(Float, PhaseFunction, projected_area, mi, active);
+    Float projected_area(const MediumInteraction3f &mei, Mask active) const override {
+        PYBIND11_OVERRIDE(Float, PhaseFunction, projected_area, mei, active);
     }
 
     Float max_projected_area() const override {
@@ -63,25 +63,25 @@ template <typename Ptr, typename Cls> void bind_phase_generic(Cls &cls) {
 
     cls.def("sample",
             [](Ptr ptr, const PhaseFunctionContext &ctx,
-               const MediumInteraction3f &mi, const Float &s1, const Point2f &s2,
-               Mask active) { return ptr->sample(ctx, mi, s1, s2, active); },
-            "ctx"_a, "mi"_a, "sample1"_a, "sample2"_a, "active"_a = true,
+               const MediumInteraction3f &mei, Float &s1, const Point2f &s2,
+               Mask active) { return ptr->sample(ctx, mei, s1, s2, active); },
+            "ctx"_a, "mei"_a, "sample1"_a, "sample2"_a, "active"_a = true,
             D(PhaseFunction, sample))
        .def("eval_pdf",
             [](Ptr ptr, const PhaseFunctionContext &ctx,
-               const MediumInteraction3f &mi, const Vector3f &wo,
-               Mask active) { return ptr->eval_pdf(ctx, mi, wo, active); },
-            "ctx"_a, "mi"_a, "wo"_a, "active"_a = true,
+               const MediumInteraction3f &mei, const Vector3f &wo,
+               Mask active) { return ptr->eval_pdf(ctx, mei, wo, active); },
+            "ctx"_a, "mei"_a, "wo"_a, "active"_a = true,
             D(PhaseFunction, eval_pdf))
         .def("eval_pdf_old",
             [](Ptr ptr, const PhaseFunctionContext &ctx,
-               const MediumInteraction3f &mi, const Vector3f &wo,
-               Mask active) { return ptr->eval_pdf_old(ctx, mi, wo, active); },
-            "ctx"_a, "mi"_a, "wo"_a, "active"_a = true, "eval pdf old")
+               const MediumInteraction3f &mei, const Vector3f &wo,
+               Mask active) { return ptr->eval_pdf_old(ctx, mei, wo, active); },
+            "ctx"_a, "mei"_a, "wo"_a, "active"_a = true, "eval pdf old")
        .def("projected_area",
-            [](Ptr ptr, const MediumInteraction3f &mi,
-               Mask active) { return ptr->projected_area(mi, active); },
-            "mi"_a, "active"_a = true,
+            [](Ptr ptr, const MediumInteraction3f &mei,
+               Mask active) { return ptr->projected_area(mei, active); },
+            "mei"_a, "active"_a = true,
             D(PhaseFunction, projected_area))
        .def("max_projected_area",
             [](Ptr ptr) { return ptr->max_projected_area(); },
@@ -126,6 +126,7 @@ MI_PY_EXPORT(PhaseFunction) {
                     dr::set_attr(&phase, "flags", flags);
                 }
             )
+            .def_readwrite("m_components", &PyPhaseFunction::m_components)
             .def("__repr__", &PhaseFunction::to_string);
 
     bind_phase_generic<PhaseFunction *>(phase);
