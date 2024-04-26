@@ -215,23 +215,23 @@ class PRBVolpathIntegrator(RBIntegrator):
 
                 # ----------------- Intersection with emitters -----------------
 
-                ray_from_camera = active_surface & dr.eq(depth, 0)
-                count_direct = ray_from_camera | specular_chain
-                emitter = si.emitter(scene)
-                active_e = active_surface & dr.neq(emitter, None) & ~(dr.eq(depth, 0) & self.hide_emitters)
+                # ray_from_camera = active_surface & dr.eq(depth, 0)
+                # count_direct = ray_from_camera | specular_chain
+                # emitter = si.emitter(scene)
+                # active_e = active_surface & dr.neq(emitter, None) & ~(dr.eq(depth, 0) & self.hide_emitters)
 
-                # Get the PDF of sampling this emitter using next event estimation
-                ds = mi.DirectionSample3f(scene, si, last_scatter_event)
-                if self.use_nee:
-                    emitter_pdf = scene.pdf_emitter_direction(last_scatter_event, ds, active_e)
-                else:
-                    emitter_pdf = 0.0
-                emitted = emitter.eval(si, active_e)
-                contrib = dr.select(count_direct, throughput * emitted,
-                                    throughput * mis_weight(last_scatter_direction_pdf, emitter_pdf) * emitted)
-                L[active_e] += dr.detach(contrib if is_primal else -contrib)
-                if not is_primal and dr.grad_enabled(contrib):
-                    dr.backward(δL * contrib)
+                # # Get the PDF of sampling this emitter using next event estimation
+                # ds = mi.DirectionSample3f(scene, si, last_scatter_event)
+                # if self.use_nee:
+                #     emitter_pdf = scene.pdf_emitter_direction(last_scatter_event, ds, active_e)
+                # else:
+                #     emitter_pdf = 0.0
+                # emitted = emitter.eval(si, active_e)
+                # contrib = dr.select(count_direct, throughput * emitted,
+                #                     throughput * mis_weight(last_scatter_direction_pdf, emitter_pdf) * emitted)
+                # L[active_e] += dr.detach(contrib if is_primal else -contrib)
+                # if not is_primal and dr.grad_enabled(contrib):
+                #     dr.backward(δL * contrib)
 
                 active_surface &= si.is_valid()
                 ctx = mi.BSDFContext()
@@ -354,8 +354,10 @@ class PRBVolpathIntegrator(RBIntegrator):
         medium = dr.select(active, medium, dr.zeros(mi.MediumPtr))
         medium[(active_surface & si.is_medium_transition())] = si.target_medium(ds.d)
 
-        ray = ref_interaction.spawn_ray_to(ds.p)
-        max_dist = mi.Float(ray.maxt)
+        # Changed because spawn_ray_to(ds.p) is invalid for a directional emitter (ds.p is at infinity)
+        ray = ref_interaction.spawn_ray(ds.d)
+        # ray = ref_interaction.spawn_ray_to(ds.p)
+        # max_dist = mi.Float(ray.maxt)
         total_dist = mi.Float(0.0)
         si = dr.zeros(mi.SurfaceInteraction3f)
         needs_intersection = mi.Bool(True)
@@ -364,7 +366,8 @@ class PRBVolpathIntegrator(RBIntegrator):
                        state=lambda: (sampler, active, medium, ray, total_dist,
                                       needs_intersection, si, transmittance))
         while loop(active):
-            remaining_dist = max_dist - total_dist
+            remaining_dist = ds.dist * (1.0 - mi.math.ShadowEpsilon) - total_dist
+            # remaining_dist = max_dist - total_dist
             ray.maxt = dr.detach(remaining_dist)
             active &= remaining_dist > 0.0
 

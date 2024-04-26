@@ -64,10 +64,6 @@ class PRBPolarizedIntegrator(RBIntegrator):
     """
     def __init__(self, props=mi.Properties()):
         super().__init__(props)
-        self.max_depth = props.get('max_depth', -1)
-        self.rr_depth = props.get('rr_depth', 5)
-        self.hide_emitters = props.get('hide_emitters', False)
-
         self.use_nee = False
         self.nee_handle_homogeneous = False
         self.handle_null_scattering = False
@@ -117,7 +113,6 @@ class PRBPolarizedIntegrator(RBIntegrator):
 
         ray = mi.Ray3f(ray)
         depth = mi.UInt32(0)                          # Depth of current vertex
-        # L = mi.Vector4f(0 if is_primal else state_in) # Radiance accumulator
         L = mi.Spectrum(0 if is_primal else state_in) # Radiance accumulator
         δL = mi.Spectrum(δL if δL is not None else 0) # Differential/adjoint radiance
         throughput = mi.Spectrum(1)                   # Path throughput weight
@@ -126,6 +121,8 @@ class PRBPolarizedIntegrator(RBIntegrator):
 
         si = dr.zeros(mi.SurfaceInteraction3f)
         needs_intersection = mi.Bool(True)
+        last_scatter_event = dr.zeros(mi.Interaction3f)
+        last_scatter_direction_pdf = mi.Float(1.0)
 
         medium = dr.zeros(mi.MediumPtr)
 
@@ -134,23 +131,29 @@ class PRBPolarizedIntegrator(RBIntegrator):
         specular_chain = mi.Bool(True)
 
         loop = mi.Loop(name=f"Path Replay Backpropagation ({mode.name})",
-                    state=lambda: (sampler, active, depth, ray, medium, si,
-                                   throughput, L, needs_intersection,
-                                   specular_chain, η, valid_ray))
+                       state=lambda: (sampler, active, depth, ray, medium, si,
+                                      throughput, L, needs_intersection,
+                                      last_scatter_event, specular_chain, η,
+                                      last_scatter_direction_pdf, valid_ray))
         while loop(active):
             for i in range(1, 4):
                 L[:, i] = 0
 
             active &= dr.any(dr.neq(mi.unpolarized_spectrum(throughput), 0.0))
+
+            #--------------------- Perform russian roulette --------------------
+
             q = dr.minimum(dr.max(mi.unpolarized_spectrum(throughput)) * dr.sqr(η), 0.99)
             perform_rr = (depth > self.rr_depth)
             active &= (sampler.next_1d(active) < q) | ~perform_rr
             throughput[perform_rr] = throughput @ mi.Spectrum(dr.rcp(q))
 
-            active_medium = active & dr.neq(medium, None) # TODO this is not necessary
+            active_medium = active & dr.neq(medium, None)
             active_surface = active & ~active_medium
 
             with dr.resume_grad(when=not is_primal):
+                #--------------------- Sample medium interaction -------------------
+
                 # Handle medium sampling and potential medium escape
                 u = sampler.next_1d(active_medium)
                 mei = medium.sample_interaction(ray, u, channel, active_medium)
@@ -158,10 +161,9 @@ class PRBPolarizedIntegrator(RBIntegrator):
 
                 ray.maxt[active_medium & medium.is_homogeneous() & mei.is_valid()] = mei.t
                 intersect = needs_intersection & active_medium
-                si_new = scene.ray_intersect(ray, intersect)
-                si[intersect] = si_new
+                si[intersect] = scene.ray_intersect(ray, intersect)
 
-                needs_intersection &= ~(active_medium & si.is_valid())
+                needs_intersection &= ~active_medium
                 mei.t[active_medium & (si.t < mei.t)] = dr.inf
 
                 # Evaluate ratio of transmittance and free-flight PDF
@@ -173,12 +175,10 @@ class PRBPolarizedIntegrator(RBIntegrator):
                 escaped_medium = active_medium & ~mei.is_valid()
                 active_medium &= mei.is_valid()
 
-                u2 = sampler.next_1d(active_medium)
-
                 # Handle null and real scatter events
                 if self.handle_null_scattering:
                     scatter_prob = index_spectrum(mei.sigma_t, channel) / index_spectrum(mei.combined_extinction, channel)
-                    act_null_scatter = (u2 >= scatter_prob) & active_medium
+                    act_null_scatter = (sampler.next_1d(active_medium) >= scatter_prob) & active_medium
                     act_medium_scatter = ~act_null_scatter & active_medium
                     weight[act_null_scatter] *= mei.sigma_n / dr.detach(1 - scatter_prob)
                 else:
@@ -186,17 +186,17 @@ class PRBPolarizedIntegrator(RBIntegrator):
                     act_medium_scatter = active_medium
 
                 depth[act_medium_scatter] += 1
+                last_scatter_event[act_medium_scatter] = dr.detach(mei)
 
                 # Don't estimate lighting if we exceeded number of bounces
                 active &= depth < self.max_depth
                 act_medium_scatter &= active
-
                 if self.handle_null_scattering:
                     ray.o[act_null_scatter] = dr.detach(mei.p)
                     si.t[act_null_scatter] = si.t - dr.detach(mei.t)
 
                 weight[act_medium_scatter] = weight @ mi.Spectrum(mei.sigma_s / dr.detach(scatter_prob))
-                throughput[active_medium] = throughput @ mi.Spectrum(dr.detach(weight))
+                throughput[active_medium] = throughput @ dr.detach(weight)
 
                 mei = dr.detach(mei)
                 if not is_primal and dr.grad_enabled(weight):
@@ -208,58 +208,8 @@ class PRBPolarizedIntegrator(RBIntegrator):
                 phase = mei.medium.phase_function()
                 phase[~act_medium_scatter] = dr.zeros(mi.PhaseFunctionPtr)
 
-                valid_ray |= act_medium_scatter
-
-                # --------------------- Emitter sampling ---------------------
-                if self.use_nee:
-                    sample_emitters = mei.medium.use_emitter_sampling()
-                    active_e_medium = act_medium_scatter & sample_emitters
-                    specular_chain &= ~act_medium_scatter
-                    specular_chain |= act_medium_scatter & ~sample_emitters
-
-                    nee_sampler = sampler if is_primal else sampler.clone()
-                    emitted, ds = self.sample_emitter(mei, scene, sampler, 
-                        medium, channel, active_e_medium, mode=dr.ADMode.Primal)
-                    
-                    # Query the phase function for that emitter-sampled direction
-                    phase_wo = mei.to_local(ds.d)
-                    phase_val, phase_pdf = phase.eval_pdf(phase_ctx, mei, phase_wo, active_e_medium)
-                    phase_val = mei.to_world_mueller(phase_val, -phase_wo, mei.wi)
-
-                    # Calculate NEE contribution to final radiance value
-                    contrib = throughput @ phase_val @ emitted
-                    L[active_e_medium] += dr.detach(contrib if is_primal else -contrib)
-
-                    if not is_primal:
-                        self.sample_emitter(mei, scene, nee_sampler,
-                            medium, channel, active_e_medium, adj_emitted=contrib, δL=δL, mode=mode)
-                        if dr.grad_enabled(phase_val) or dr.grad_enabled(emitted):
-                            dr.backward(δL @ contrib)
-
-                with dr.suspend_grad():
-                    wo, phase_weight, phase_pdf = phase.sample(phase_ctx, mei, 
-                                                               sampler.next_1d(act_medium_scatter), 
-                                                               sampler.next_2d(act_medium_scatter), 
-                                                               act_medium_scatter)
-                    act_medium_scatter &= phase_pdf > 0.0
-
-                phase_eval, _ = phase.eval_pdf(phase_ctx, mei, wo, act_medium_scatter)
-                phase_eval = mei.to_world_mueller(phase_eval, -wo, mei.wi)
-                
-                if not is_primal and dr.grad_enabled(phase_eval):
-                    I = dr.replace_grad(mi.Spectrum(1.0), phase_eval)
-                    Lo = I @ mi.Spectrum(dr.detach(dr.select(act_medium_scatter, L, 0.0)))
-                    if mode == dr.ADMode.Backward:
-                        dr.backward_from(δL @ Lo)
-                    else:
-                        δL += dr.forward_to(Lo)
-
-                throughput[act_medium_scatter] = throughput @ phase_weight
-                new_ray = mei.spawn_ray(mei.to_world(wo))
-                ray[act_medium_scatter] = new_ray
-                needs_intersection |= act_medium_scatter
-
                 #--------------------- Surface Interactions ---------------------
+                
                 active_surface |= escaped_medium
                 intersect = active_surface & needs_intersection
                 si[intersect] = scene.ray_intersect(ray, intersect)
@@ -269,32 +219,74 @@ class PRBPolarizedIntegrator(RBIntegrator):
                 bsdf = si.bsdf(ray)
 
                 # --------------------- Emitter sampling ---------------------
+                
                 if self.use_nee:
                     active_e_surface = active_surface & mi.has_flag(bsdf.flags(), mi.BSDFFlags.Smooth) & (depth + 1 < self.max_depth)
+                    sample_emitters = mei.medium.use_emitter_sampling()
+                    specular_chain &= ~act_medium_scatter
+                    specular_chain |= act_medium_scatter & ~sample_emitters
+
+                    active_e_medium = act_medium_scatter & sample_emitters
+                    active_e = active_e_surface | active_e_medium
 
                     nee_sampler = sampler if is_primal else sampler.clone()
-                    emitted, ds = self.sample_emitter(si, scene, sampler, 
-                        medium, channel, active_e_surface, mode=dr.ADMode.Primal)
+                    emitted, ds = self.sample_emitter(mei, si, active_e_medium, active_e_surface,
+                        scene, sampler, medium, channel, active_e, mode=dr.ADMode.Primal)
                     
                     # Query the BSDF for that emitter-sampled direction
                     bsdf_wo = si.to_local(ds.d)
-                    bsdf_val = bsdf.eval(ctx, si, bsdf_wo, active_e_surface)
+                    bsdf_val, _ = bsdf.eval_pdf(ctx, si, bsdf_wo, active_e_surface)
                     bsdf_val = si.to_world_mueller(bsdf_val, -bsdf_wo, si.wi)
 
+                    phase_wo = mei.to_local(ds.d)
+                    phase_val, _ = phase.eval_pdf(phase_ctx, mei, phase_wo, active_e_medium)
+                    phase_val = mei.to_world_mueller(phase_val, -phase_wo, mei.wi)
+                    
+                    nee_weight = mi.Spectrum(dr.select(active_e_surface, bsdf_val, phase_val))
+
                     # Calculate NEE contribution to final radiance value
-                    contrib = throughput @ bsdf_val @ emitted
-                    L[active_e_surface] += dr.detach(contrib if is_primal else -contrib)
+                    contrib = throughput @ nee_weight @ emitted
+                    L[active_e] += dr.detach(contrib if is_primal else -contrib)
 
                     if not is_primal:
-                        self.sample_emitter(si, scene, nee_sampler,
-                            medium, channel, active_e_surface, adj_emitted=contrib, δL=δL, mode=mode)
-                        if dr.grad_enabled(bsdf_val) or dr.grad_enabled(emitted):
+                        self.sample_emitter(mei, si, active_e_medium, active_e_surface,
+                            scene, nee_sampler, medium, channel, active_e, adj_emitted=contrib,
+                            δL=δL, mode=mode)
+                        
+                        if dr.grad_enabled(nee_weight) or dr.grad_enabled(emitted):
                             dr.backward(δL @ contrib)
+
+                #-------------------- Phase function sampling ------------------
+
+                valid_ray |= act_medium_scatter
+                with dr.suspend_grad():
+                    wo, phase_weight, phase_pdf = phase.sample(phase_ctx, mei,
+                                                               sampler.next_1d(act_medium_scatter),
+                                                               sampler.next_2d(act_medium_scatter),
+                                                               act_medium_scatter)
+                    phase_weight = mei.to_world_mueller(phase_weight, -wo, mei.wi)
+                act_medium_scatter &= phase_pdf > 0.0
+
+                # Re evaluate the phase function value in an attached manner
+                phase_eval, _ = phase.eval_pdf(phase_ctx, mei, wo, act_medium_scatter)
+                phase_eval = mei.to_world_mueller(phase_eval, -wo, mei.wi)
+                if not is_primal and dr.grad_enabled(phase_eval):
+                    I = dr.replace_grad(mi.Spectrum(1.0), phase_eval)
+                    Lo = I @ mi.Spectrum(dr.detach(dr.select(act_medium_scatter, L, 0.0)))
+                    if mode == dr.ADMode.Backward:
+                        dr.backward_from(δL @ Lo)
+
+                throughput[act_medium_scatter] = throughput @ phase_weight
+                ray[act_medium_scatter] = mei.spawn_ray(mei.to_world(wo))
+                needs_intersection |= act_medium_scatter
+                last_scatter_direction_pdf[act_medium_scatter] = phase_pdf
 
                 # ----------------------- BSDF sampling ----------------------
                 with dr.suspend_grad():
-                    bs, bsdf_weight = bsdf.sample(ctx, si, sampler.next_1d(active_surface),
-                                            sampler.next_2d(active_surface), active_surface)
+                    bs, bsdf_weight = bsdf.sample(ctx, si,
+                                                  sampler.next_1d(active_surface),
+                                                  sampler.next_2d(active_surface),
+                                                  active_surface)
                     bsdf_weight = si.to_world_mueller(bsdf_weight, -bs.wo, si.wi)
                     active_surface &= bs.pdf > 0
 
@@ -306,8 +298,6 @@ class PRBPolarizedIntegrator(RBIntegrator):
                     Lo = I @ mi.Spectrum(dr.detach(dr.select(active, L, 0.0)))
                     if mode == dr.ADMode.Backward:
                         dr.backward_from(δL @ Lo)
-                    else:
-                        δL += dr.forward_to(Lo)
 
                 throughput[active_surface] = throughput @ bsdf_weight
                 η[active_surface] *= bs.eta
@@ -318,6 +308,10 @@ class PRBPolarizedIntegrator(RBIntegrator):
                 non_null_bsdf = active_surface & ~mi.has_flag(bs.sampled_type, mi.BSDFFlags.Null)
                 depth[non_null_bsdf] += 1
 
+                # update the last scatter PDF event if we encountered a non-null scatter event
+                last_scatter_event[non_null_bsdf] = si
+                last_scatter_direction_pdf[non_null_bsdf] = bs.pdf
+
                 valid_ray |= non_null_bsdf
                 specular_chain |= non_null_bsdf & mi.has_flag(bs.sampled_type, mi.BSDFFlags.Delta)
                 specular_chain &= ~(active_surface & mi.has_flag(bs.sampled_type, mi.BSDFFlags.Smooth))
@@ -327,19 +321,26 @@ class PRBPolarizedIntegrator(RBIntegrator):
 
         return L if is_primal else δL, valid_ray, L
 
-    def sample_emitter(self, ref_interaction, scene, sampler, medium, channel,
+    def sample_emitter(self, mei, si, active_medium, active_surface, scene, sampler, medium, channel,
                        active, adj_emitted=None, δL=None, mode=None):
-
         is_primal = mode == dr.ADMode.Primal
 
         active = mi.Bool(active)
-        medium = dr.select(active, medium, dr.zeros(mi.MediumPtr))
 
-        ds, emitter_val = scene.sample_emitter_direction(ref_interaction, sampler.next_2d(active), False, active)
+        ref_interaction = dr.zeros(mi.Interaction3f)
+        ref_interaction[active_medium] = mei
+        ref_interaction[active_surface] = si
+
+        ds, emitter_val = scene.sample_emitter_direction(ref_interaction, 
+                                                         sampler.next_2d(active), 
+                                                         False, active)
         ds = dr.detach(ds)
         invalid = dr.eq(ds.pdf, 0.0)
         emitter_val[invalid] = 0.0
         active &= ~invalid
+
+        medium = dr.select(active, medium, dr.zeros(mi.MediumPtr))
+        medium[(active_surface & si.is_medium_transition())] = si.target_medium(ds.d)
 
         ray = ref_interaction.spawn_ray(ds.d)
         total_dist = mi.Float(0.0)
@@ -370,11 +371,11 @@ class PRBPolarizedIntegrator(RBIntegrator):
             tr_multiplier = mi.Spectrum(1.0)
 
             # Special case for homogeneous media: directly advance to the next surface / end of the segment
-            # if self.nee_handle_homogeneous:
-            #     active_homogeneous = active_medium & medium.is_homogeneous()
-            #     mei.t[active_homogeneous] = dr.minimum(remaining_dist, si.t)
-            #     tr_multiplier[active_homogeneous] = medium.transmittance_eval_pdf(mei, si, active_homogeneous)[0]
-            #     mei.t[active_homogeneous] = dr.inf
+            if self.nee_handle_homogeneous:
+                active_homogeneous = active_medium & medium.is_homogeneous()
+                mei.t[active_homogeneous] = dr.minimum(remaining_dist, si.t)
+                tr_multiplier[active_homogeneous] = medium.transmittance_eval_pdf(mei, si, active_homogeneous)[0]
+                mei.t[active_homogeneous] = dr.inf
 
             escaped_medium = active_medium & ~mei.is_valid()
 
@@ -400,8 +401,7 @@ class PRBPolarizedIntegrator(RBIntegrator):
             transmittance = transmittance @ dr.detach(tr_multiplier)
 
             # Update the ray with new origin & t parameter
-            new_ray = si.spawn_ray(mi.Vector3f(ray.d))
-            ray[active_surface] = dr.detach(new_ray)
+            ray[active_surface] = dr.detach(si.spawn_ray(mi.Vector3f(ray.d)))
             ray.maxt = dr.detach(remaining_dist)
             needs_intersection |= active_surface
 

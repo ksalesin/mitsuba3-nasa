@@ -64,10 +64,6 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
     """
     def __init__(self, props=mi.Properties()):
         super().__init__(props)
-        self.max_depth = props.get('max_depth', -1)
-        self.rr_depth = props.get('rr_depth', 5)
-        self.hide_emitters = props.get('hide_emitters', False)
-
         self.use_nee = False
         self.nee_handle_homogeneous = False
         self.handle_null_scattering = False
@@ -117,7 +113,6 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
 
         ray = mi.Ray3f(ray)
         depth = mi.UInt32(0)                          # Depth of current vertex
-        # L = mi.Vector4f(0 if is_primal else state_in) # Radiance accumulator
         L = mi.Spectrum(0 if is_primal else state_in) # Radiance accumulator
         δL = mi.Spectrum(δL if δL is not None else 0) # Differential/adjoint radiance
         throughput = mi.Spectrum(1)                   # Path throughput weight
@@ -139,14 +134,18 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
 
         loop = mi.Loop(name=f"Path Replay Backpropagation ({mode.name})",
                     state=lambda: (sampler, active, depth, ray, medium, si,
-                                   throughput, L, needs_intersection,
-                                   specular_chain, η, valid_ray, refractive_bsdf))
+                                throughput, L, needs_intersection,
+                                specular_chain, η, valid_ray, refractive_bsdf))
 
         while loop(active):
             for i in range(1, 4):
                 L[:, i] = 0
 
             active &= dr.any(dr.neq(mi.unpolarized_spectrum(throughput), 0.0))
+
+            #--------------------- Perform russian roulette --------------------
+
+            # Comment out for low-discrepancy sampling
             q = dr.minimum(dr.max(mi.unpolarized_spectrum(throughput)) * dr.sqr(η), 0.99)
             perform_rr = (depth > self.rr_depth)
             active &= (sampler.next_1d(active) < q) | ~perform_rr
@@ -156,6 +155,8 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
             active_surface = active & ~active_medium
 
             with dr.resume_grad(when=not is_primal):
+                #--------------------- Sample medium interaction -------------------
+
                 # Handle medium sampling and potential medium escape
                 u = sampler.next_1d(active_medium)
                 mei = medium.sample_interaction(ray, u, channel, active_medium)
@@ -163,10 +164,10 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
 
                 ray.maxt[active_medium & medium.is_homogeneous() & mei.is_valid()] = mei.t
                 intersect = needs_intersection & active_medium
-                si_new = scene.ray_intersect(ray, intersect)
-                si[intersect] = si_new
+                si[intersect] = scene.ray_intersect(ray, intersect)
 
-                needs_intersection &= ~(active_medium & si.is_valid())
+                needs_intersection &= ~active_medium
+                # needs_intersection &= ~(active_medium & si.is_valid())
                 mei.t[active_medium & (si.t < mei.t)] = dr.inf
 
                 # Evaluate ratio of transmittance and free-flight PDF
@@ -178,12 +179,10 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
                 escaped_medium = active_medium & ~mei.is_valid()
                 active_medium &= mei.is_valid()
 
-                u2 = sampler.next_1d(active_medium)
-
                 # Handle null and real scatter events
                 if self.handle_null_scattering:
                     scatter_prob = index_spectrum(mei.sigma_t, channel) / index_spectrum(mei.combined_extinction, channel)
-                    act_null_scatter = (u2 >= scatter_prob) & active_medium
+                    act_null_scatter = (sampler.next_1d(active_medium) >= scatter_prob) & active_medium
                     act_medium_scatter = ~act_null_scatter & active_medium
                     weight[act_null_scatter] *= mei.sigma_n / dr.detach(1 - scatter_prob)
                 else:
@@ -224,6 +223,7 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
                 valid_ray |= act_medium_scatter
 
                 # --------------------- Emitter sampling ---------------------
+
                 if self.use_nee:
                     sample_emitters = mei.medium.use_emitter_sampling()
                     active_e_medium = act_medium_scatter & sample_emitters
@@ -249,13 +249,15 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
                         if dr.grad_enabled(phase_val) or dr.grad_enabled(emitted):
                             dr.backward(δL @ contrib)
 
+                #-------------------- Phase function sampling ------------------
+
                 with dr.suspend_grad():
                     wo, phase_weight, phase_pdf = phase.sample(phase_ctx, mei, 
-                                                               sampler.next_1d(act_medium_scatter), 
-                                                               sampler.next_2d(act_medium_scatter), 
-                                                               act_medium_scatter)
+                                                                sampler.next_1d(act_medium_scatter), 
+                                                                sampler.next_2d(act_medium_scatter), 
+                                                                act_medium_scatter)
                     phase_weight = mei.to_world_mueller(phase_weight, -wo, mei.wi)
-                    act_medium_scatter &= phase_pdf > 0.0
+                act_medium_scatter &= phase_pdf > 0.0
 
                 phase_eval, _ = phase.eval_pdf(phase_ctx, mei, wo, act_medium_scatter)
                 phase_eval = mei.to_world_mueller(phase_eval, -wo, mei.wi)
@@ -265,8 +267,6 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
                     Lo = I @ mi.Spectrum(dr.detach(dr.select(act_medium_scatter, L, 0.0)))
                     if mode == dr.ADMode.Backward:
                         dr.backward_from(δL @ Lo)
-                    else:
-                        δL += dr.forward_to(Lo)
 
                 throughput[act_medium_scatter] = throughput @ phase_weight
                 new_ray = mei.spawn_ray(mei.to_world(wo))
@@ -274,6 +274,7 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
                 needs_intersection |= act_medium_scatter
 
                 #--------------------- Surface Interactions ---------------------
+
                 active_surface |= escaped_medium
                 intersect = active_surface & needs_intersection
                 si[intersect] = scene.ray_intersect(ray, intersect)
@@ -283,6 +284,7 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
                 bsdf = si.bsdf(ray)
 
                 # --------------------- Emitter sampling ---------------------
+
                 if self.use_nee:
                     active_e_surface = active_surface & mi.has_flag(bsdf.flags(), mi.BSDFFlags.Smooth) & (depth + 1 < self.max_depth)
                     diffuse = mi.has_flag(bsdf.flags(), mi.BSDFFlags.DiffuseReflection)
@@ -314,6 +316,7 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
                             dr.backward(δL @ contrib)
 
                 # ----------------------- BSDF sampling ----------------------
+                            
                 with dr.suspend_grad():
                     bs, bsdf_weight = bsdf.sample(ctx, si, sampler.next_1d(active_surface),
                                             sampler.next_2d(active_surface), active_surface)
@@ -328,8 +331,6 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
                     Lo = I @ mi.Spectrum(dr.detach(dr.select(active, L, 0.0)))
                     if mode == dr.ADMode.Backward:
                         dr.backward_from(δL @ Lo)
-                    else:
-                        δL += dr.forward_to(Lo)
 
                 throughput[active_surface] = throughput @ bsdf_weight
                 η[active_surface] *= bs.eta
@@ -360,7 +361,7 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
                 refractive_bsdf[unset_refractive_bsdf] = dr.zeros(mi.BSDFPtr)
 
                 active &= (active_surface | active_medium)
-        
+            
         return L if is_primal else δL, valid_ray, L
 
 
@@ -372,7 +373,9 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
         active = mi.Bool(active)
         medium = dr.select(active, medium, dr.zeros(mi.MediumPtr))
 
-        ds, emitter_val = scene.sample_emitter_direction(ref_interaction, sampler.next_2d(active), False, active)
+        ds, emitter_val = scene.sample_emitter_direction(ref_interaction, 
+                                                         sampler.next_2d(active), 
+                                                         False, active)
         ds = dr.detach(ds)
         invalid = dr.eq(ds.pdf, 0.0)
         emitter_val[invalid] = 0.0
@@ -429,18 +432,23 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
             active_surface = active & ~active_medium
 
             # Handle medium interactions / transmittance
-            mei = medium.sample_interaction(ray, sampler.next_1d(active_medium), channel, active_medium)
-            mei.t[active_medium & (si.t < mei.t)] = dr.inf
-            mei.t = dr.detach(mei.t)
+            # mei = medium.sample_interaction(ray, sampler.next_1d(active_medium), channel, active_medium)
+            # mei.t[active_medium & (si.t < mei.t)] = dr.inf
+            # mei.t = dr.detach(mei.t)
 
             tr_multiplier = mi.Spectrum(1.0)
 
             # Special case for homogeneous media: directly advance to the next surface / end of the segment
-            # if self.nee_handle_homogeneous:
-            #     active_homogeneous = active_medium & medium.is_homogeneous()
-            #     mei.t[active_homogeneous] = dr.minimum(remaining_dist, si.t)
-            #     tr_multiplier[active_homogeneous] = medium.transmittance_eval_pdf(mei, si, active_homogeneous)[0]
-            #     mei.t[active_homogeneous] = dr.inf
+            if self.nee_handle_homogeneous:
+                mei = medium.sample_interaction(ray, 0.5, channel, active_medium) # No sample generation, not needed
+                active_homogeneous = active_medium & medium.is_homogeneous()
+                mei.t[active_homogeneous] = dr.minimum(remaining_dist, si.t)
+                tr_multiplier[active_homogeneous] = medium.transmittance_eval_pdf(mei, si, active_homogeneous)[0]
+                mei.t[active_homogeneous] = dr.inf
+            else:
+                mei = medium.sample_interaction(ray, sampler.next_1d(active_medium), channel, active_medium)
+                mei.t[active_medium & (si.t < mei.t)] = dr.inf
+                mei.t = dr.detach(mei.t)
 
             escaped_medium = active_medium & ~mei.is_valid()
 
@@ -449,7 +457,7 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
             ray.o[active_medium] = dr.detach(mei.p)
             si.t[active_medium] = dr.detach(si.t - mei.t)
              # TODO: Fix errors about matmul and not being able to cast shapes / operands
-            tr_multiplier[active_medium] = tr_multiplier @ mi.Spectrum(mei.sigma_n @ dr.rcp(mei.combined_extinction))
+            tr_multiplier[active_medium] = tr_multiplier @ mi.Spectrum(mei.sigma_n / mei.combined_extinction)
 
             # Handle interactions with surfaces
             active_surface |= escaped_medium
@@ -480,8 +488,7 @@ class PRBVolpathAOSIntegrator(RBIntegrator):
             transmittance = transmittance @ dr.detach(tr_multiplier)
 
             # Update the ray with new origin & t parameter
-            new_ray = si.spawn_ray(mi.Vector3f(ray.d))
-            ray[active_surface] = dr.detach(new_ray)
+            ray[active_surface] = dr.detach(si.spawn_ray(mi.Vector3f(ray.d)))
             ray.maxt = dr.detach(remaining_dist)
             needs_intersection |= active_surface
 
