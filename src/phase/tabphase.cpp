@@ -43,21 +43,34 @@ public:
 
     TabulatedPhaseFunction(const Properties &props) : Base(props) {
         if (props.type("values") == Properties::Type::String) {
+            std::vector<std::string> cost_str =
+                string::tokenize(props.string("cost"), " ,");
             std::vector<std::string> values_str =
                 string::tokenize(props.string("values"), " ,");
-            std::vector<ScalarFloat> data;
+
+            if (cost_str.size() != values_str.size())
+                Throw("TabulatedPhaseFunction: 'cost' and 'values' parameters must have the same size!");
+
+            std::vector<ScalarFloat> cost, data;
+            cost.reserve(cost_str.size());
             data.reserve(values_str.size());
 
-            for (const auto &s : values_str) {
+            for (size_t i = 0; i < cost_str.size(); ++i) {
                 try {
-                    data.push_back((ScalarFloat) std::stod(s));
+                    cost.push_back(string::stof<ScalarFloat>(cost_str[i]));
                 } catch (...) {
-                    Throw("Could not parse floating point value '%s'", s);
+                    Throw("Could not parse floating point value '%s'", cost_str[i]);
+                }
+                try {
+                    data.push_back(string::stof<ScalarFloat>(values_str[i]));
+                } catch (...) {
+                    Throw("Could not parse floating point value '%s'", values_str[i]);
                 }
             }
 
-            m_distr = ContinuousDistribution<Float>(ScalarVector2f(-1.f, 1.f),
-                                                    data.data(), data.size());
+            m_distr = IrregularContinuousDistribution<Float>(
+                cost.data(), data.data(), data.size()
+            );
         } else {
             Throw("'values' must be a string");
         }
@@ -131,7 +144,7 @@ public:
 
     MI_DECLARE_CLASS()
 private:
-    ContinuousDistribution<Float> m_distr;
+    IrregularContinuousDistribution<Float> m_distr;
 };
 
 MI_IMPLEMENT_CLASS_VARIANT(TabulatedPhaseFunction, PhaseFunction)
