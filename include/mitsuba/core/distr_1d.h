@@ -877,11 +877,12 @@ private:
     void compute_cdf() {
         if (m_pdf.size() < 2)
             Throw("IrregularContinuousDistribution: needs at least two entries!");
-        if (m_enable_sampling)
+        if (m_enable_sampling) {
             if (!dr::all(m_pdf >= 0.f))
                 Throw("IrregularContinuousDistribution: entries must be non-negative!");
-        if (!dr::any(m_pdf > 0.f))
-            Throw("IrregularContinuousDistribution: no probability mass found!");
+            if (!dr::any(m_pdf > 0.f))
+                Throw("IrregularContinuousDistribution: no probability mass found!");
+        }
 
         uint32_t size = m_pdf.size() - 1;
         m_range = ScalarVector2f(dr::slice(m_nodes, 0), dr::slice(m_nodes, size));
