@@ -249,8 +249,10 @@ class Adam(Optimizer):
         Parameter ``params`` (:py:class:`dict`):
             Optional dictionary-like object containing parameters to optimize.
         """
+        # assert 0 <= beta_1 < 1 and 0 <= beta_2 < 1 \
+        #     and lr > 0 and epsilon > 0
         assert 0 <= beta_1 < 1 and 0 <= beta_2 < 1 \
-            and lr > 0 and epsilon > 0
+            and epsilon > 0
 
         self.beta_1 = beta_1
         self.beta_2 = beta_2
