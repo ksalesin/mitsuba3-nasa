@@ -158,20 +158,37 @@ public:
             return { wo, w, pdf };
         }
 
-        UInt32 idx_u = dr::zeros<UInt32>();
-        Float sample1_adjusted = dr::zeros<Float>();
-        Float last_cdf = dr::zeros<Float>();
+        // UInt32 idx_u = dr::zeros<UInt32>();
+        Float sample1_adjusted = 0.f;
+        Float last_cdf = 0.f;
+
+        // for (size_t i = 0; i < m_nested_phase.size(); ++i) {
+        //     auto sample_i = sample1 > last_cdf && sample1 < cdf[i];
+        //     dr::masked(idx_u, sample_i) = i;
+        //     dr::masked(sample1_adjusted, sample_i) = (sample1 - last_cdf) / (cdf[i] - last_cdf);
+        //     last_cdf = cdf[i];
+        // }
+
+        Vector3f wo(0.f);
+        Spectrum w(0.f);
+        Float pdf = 0.f;
 
         for (size_t i = 0; i < m_nested_phase.size(); ++i) {
-            auto sample_i = sample1 > last_cdf && sample1 < cdf[i];
-            dr::masked(idx_u, sample_i) = i;
-            dr::masked(sample1_adjusted, sample_i) = (sample1 - last_cdf) / (cdf[i] - last_cdf);
+            Mask sample_i = active && sample1 > last_cdf && sample1 < cdf[i];
+            
+            if (dr::any_or<true>(sample_i)) {
+                dr::masked(sample1_adjusted, sample_i) = (sample1 - last_cdf) / (cdf[i] - last_cdf);
+                auto [wo_i, w_i, pdf_i] = m_nested_phase[i]->sample(ctx, mei, sample1_adjusted, sample2, sample_i);
+                dr::masked(wo, sample_i) = wo_i;
+                dr::masked(w, sample_i) = w_i;
+                dr::masked(pdf, sample_i) = pdf_i;
+            }
+            
             last_cdf = cdf[i];
         }
 
-        PhaseFunctionPtr phase = dr::gather<PhaseFunctionPtr>(m_phase_dr, idx_u, active);
-
-        auto [wo, w, pdf] = phase->sample(ctx, mei, sample1_adjusted, sample2, active);
+        // PhaseFunctionPtr phase = dr::gather<PhaseFunctionPtr>(m_phase_dr, idx_u, active);
+        // auto [wo, w, pdf] = phase->sample(ctx, mei, sample1_adjusted, sample2, active);
 
         return { wo, w, pdf };
     }
